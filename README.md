@@ -4,6 +4,12 @@ A no-build, browser-only prototype that combines an Excel-style **staff schedule
 
 Open `index.html` in a browser (or run `python3 -m http.server` and visit http://localhost:8000). Data is saved in the browser's localStorage and starts with demo data.
 
+A **Walkthrough** (top right, and offered on first visit) resets the demo data and steps through the whole flow: calendar, partial shifts, an employee request, charge nurse review, manager decision, and the result on the calendar and schedule.
+
+### Shareable version
+
+`python3 tools/build_artifact.py OUTPUT.html` bundles everything into one page for publishing as a claude.ai artifact. That viewer blocks browser pop-ups and downloads, so the app uses in-page dialogs, and "Copy for Excel" copies the schedule to paste straight into Excel.
+
 ## Roles
 
 Switch roles at the top of the page:
@@ -29,9 +35,9 @@ Requests end as Approved, Denied or Partially Approved. Approved days appear on 
   - **Week** view: real dates, approved time off (striped), partial days (½), pending requests (amber outline). Edits apply to that week only (corner marker).
   - **Repeating pattern** view: the shifts that repeat every week.
   - Shifts: Day 0700–1530, Mid 0900–1730, Late 1100–1930, 10hr 0700–1730.
-  - Controls: click/drag/shift-click to select, arrows, type `D`/`M`/`L`/`T`, `X`/Delete for off, Enter or double-click cycles, Ctrl+C / Ctrl+V (works with Excel), name box + formula bar, filter, **Export to Excel (CSV)**.
+  - Controls: click/drag/shift-click to select, arrows, type `D`/`M`/`L`/`T`, `X`/Delete for off, Enter or double-click cycles, Ctrl+C / Ctrl+V (works with Excel), name box + formula bar, filter, **Copy for Excel**.
 - **Review queue / My requests** – depends on role (see above).
-- **Staff** (manager) – add/remove staff, change department, PTO/vacation allowance and days used; export/import JSON; reset demo data.
+- **Staff** (manager) – add/remove staff, change department, PTO/vacation allowance and days used; copy data / import a backup; reset demo data.
 
 ## How the integration works
 
@@ -42,3 +48,5 @@ For any date, the app takes everyone's shift (one-week edit if there is one, oth
 - `index.html` – layout
 - `styles.css` – styling (light/dark, mobile friendly)
 - `app.js` – data model, schedule/vacation logic, review workflow, rendering
+- `tour.js` – guided walkthrough
+- `tools/build_artifact.py` – single-file bundle for sharing

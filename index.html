@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>GI/Hep Staff Schedule</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -17,6 +20,7 @@
           <button data-role="manager">Manager</button>
         </div>
         <select id="meSelect" aria-label="Viewing as employee"></select>
+        <button id="tourBtn" class="ghost">Walkthrough</button>
       </div>
     </div>
     <nav class="tabs" role="tablist">
@@ -70,7 +74,7 @@
         <input id="sheetSearch" type="search" placeholder="Filter staff…" />
         <button class="ghost" id="toggleAll">Collapse all</button>
         <button class="ghost" id="resetWeek">Reset week to pattern</button>
-        <button class="ghost" id="exportCsv">Export to Excel (CSV)</button>
+        <button class="ghost" id="exportCsv">Copy for Excel</button>
       </div>
       <div class="formula-bar">
         <span id="nameBox" class="name-box"></span>
@@ -137,14 +141,19 @@
       <div id="staffList" class="staff-list"></div>
       <div class="card data-tools">
         <h3>Data</h3>
-        <p class="muted">Everything is saved in this browser only (localStorage).</p>
-        <button id="exportBtn" class="ghost">Export JSON</button>
+        <p class="muted">Everything is saved in this browser only. Copy data to keep a backup, and import it later.</p>
+        <button id="exportBtn" class="ghost">Copy data</button>
         <label class="ghost file-btn">Import JSON <input id="importFile" type="file" accept="application/json" hidden /></label>
         <button id="resetBtn" class="danger">Reset to demo data</button>
       </div>
     </section>
   </main>
 
+  <div id="modal" class="modal" hidden></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <div id="tour" class="tour" role="dialog" aria-labelledby="tourTitle" hidden></div>
+
   <script src="app.js"></script>
+  <script src="tour.js"></script>
 </body>
 </html>

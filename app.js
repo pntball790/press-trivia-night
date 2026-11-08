@@ -77,7 +77,7 @@ function demoData() {
     ["Park, Ellie", "RN", "ecc", "-DDDDD-"], ["Ruiz, Ben", "RN", "ecc", "-LL-LL-"],
     ["Smith, Jane", "RN", "gengi", "-DDDDD-"], ["Johnson, Mark", "RN", "gengi", "-MMMMM-"], ["Lee, Jordan", "RN", "gengi", "-LLLLL-"],
     ["Price, Devon", "RN", "gengi", "-TT-TT-"], ["Harper, Quinn", "RN", "gengi", "--TT-T-"],
-    ["Nguyen, Alex", "RN", "hep", "-DDDDD-"], ["Kim, Dana", "RN", "hep", "-MMMMM-"], ["Santos, Drew", "RN", "hep", "-TT-TT-"], ["Gill, Maya", "RN", "hep", "--LLL--"],
+    ["Nguyen, Alex", "RN", "hep", "-DDDDD-"], ["Kang, Dana", "RN", "hep", "-MMMMM-"], ["Santos, Drew", "RN", "hep", "-TT-TT-"], ["Gill, Maya", "RN", "hep", "--LLL--"],
     ["Patel, Sam", "RN", "ibd", "-DDDDD-"], ["Rossi, Nina", "RN", "ibd", "-MM-MM-"], ["Lang, Theo", "RN", "ibd", "---T-T-"],
     ["Ortiz, Lena", "RN", "mot", "-DDDDD-"], ["Dunn, Chris", "RN", "mot", "-T-T-T-"],
     ["Fisher, Ava", "Per Diem RN", "pd", "-------"], ["Cole, Ian", "Per Diem RN", "pd", "-----D-"], ["Webb, Rosa", "Per Diem RN", "pd", "-D-----"],
@@ -97,13 +97,15 @@ function demoData() {
   const R = (n, s, e, type, o = {}) => makeRequest({ staffId: by(n), type, start: addDays(t, s), end: addDays(t, e), ...o });
   // a Tuesday 3+ weeks out, for a mixed full/partial example
   const tue = addDays(weekStart(addDays(t, 21)), 2);
+  // a Tuesday two weeks out: Ortiz leaves early and no other Motility nurse works Tuesdays
+  const ortizDay = addDays(weekStart(addDays(t, 14)), 2);
   state.requests = [
     R("Smith, Jane", 14, 16, "PTO", { stage: "manager", avail: "Available", cc: "Coverage is fine" }),
     R("Smith, Jane", 30, 30, "Appointment", { part: { t1: "0835", t2: "1200" }, stage: "manager", avail: "Available", cc: "OK for a half day" }),
     R("Nguyen, Alex", 21, 22, "PTO"),
     R("Patel, Sam", 14, 15, "PTO", { stage: "approved", avail: "Available" }),
-    R("Ortiz, Lena", 16, 16, "PTO", { part: { t1: "1300", t2: "1530" }, stage: "approved", avail: "Available" }),
-    R("Kim, Dana", 7, 9, "PTO", { stage: "approved", avail: "Available" }),
+    makeRequest({ staffId: by("Ortiz, Lena"), type: "PTO", start: ortizDay, end: ortizDay, part: { t1: "1300", t2: "1530" }, stage: "approved", avail: "Available" }),
+    R("Kang, Dana", 7, 9, "PTO", { stage: "approved", avail: "Available" }),
     R("Lee, Jordan", 15, 17, "Vacation", { note: "Family wedding" }),
     R("Rossi, Nina", -3, -2, "Sick", { stage: "approved", avail: "Available" }),
     R("Reyes, Maria", 28, 32, "Vacation", { note: "Holiday travel" }),
@@ -343,6 +345,60 @@ const statusChip = (st) => `<span class="schip st-${st.split(" ")[0]}">${st}</sp
 const canEdit = () => ui.role !== "employee";
 const timeInput = (attrs, value = "", ph = "") => `<input class="t4" maxlength="4" inputmode="numeric" placeholder="${ph}" value="${esc(value)}" ${attrs} />`;
 
+// In-page dialog. The artifact viewer blocks alert/confirm/prompt, so everything goes through this.
+function ask({ title, message = "", input = null, ok = "OK", cancel = "Cancel", danger = false }) {
+  return new Promise((resolve) => {
+    const m = $("#modal");
+    m.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h3 id="modalTitle">${esc(title)}</h3>${message ? `<p>${esc(message)}</p>` : ""}
+      ${input ? `<input id="modalInput" value="${esc(input.value ?? "")}" placeholder="${esc(input.placeholder || "")}" ${input.numeric ? 'inputmode="numeric"' : ""} />` : ""}
+      <div class="modal-actions">${cancel ? `<button class="ghost" data-r="cancel">${cancel}</button>` : ""}<button class="${danger ? "danger-solid" : ""}" data-r="ok">${ok}</button></div>
+    </div>`;
+    m.hidden = false;
+    const field = $("#modalInput");
+    (field || m.querySelector('[data-r="ok"]')).focus();
+    field?.select();
+    const done = (val) => {
+      m.hidden = true; m.innerHTML = "";
+      document.removeEventListener("keydown", onKey, true);
+      resolve(val);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(null); }
+      else if (e.key === "Enter" && field) { e.preventDefault(); e.stopPropagation(); done(field.value); }
+    };
+    document.addEventListener("keydown", onKey, true);
+    m.onclick = (e) => {
+      const r = e.target.closest("[data-r]")?.dataset.r;
+      if (r === "ok") done(field ? field.value : true);
+      else if (r === "cancel" || e.target === m) done(null);
+    };
+  });
+}
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => (t.hidden = true), 4000);
+}
+// Copy text; if the clipboard is refused, show it selected so it can be copied by hand.
+function copyText(text, doneMsg) {
+  const fallback = () => {
+    const m = $("#modal");
+    m.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true"><h3>Copy this text</h3>
+      <p>Your browser blocked automatic copying. Press Ctrl+C (or Cmd+C) now, then paste into Excel.</p>
+      <textarea id="copyArea" readonly></textarea><div class="modal-actions"><button data-r="ok">Done</button></div></div>`;
+    $("#copyArea").value = text;
+    m.hidden = false;
+    $("#copyArea").focus(); $("#copyArea").select();
+    m.onclick = (e) => { if (e.target.closest("[data-r]") || e.target === m) { m.hidden = true; m.innerHTML = ""; } };
+  };
+  try {
+    navigator.clipboard.writeText(text).then(() => toast(doneMsg), fallback);
+  } catch { fallback(); }
+}
+
 function render() {
   renderRole();
   renderCalendar();
@@ -351,6 +407,7 @@ function render() {
   renderRequests();
   renderStaff();
   $("#minStaff").value = state.settings.minStaff;
+  if (typeof tourRefresh === "function") tourRefresh();
 }
 
 function renderRole() {
@@ -597,6 +654,7 @@ function renderSchedule() {
   ui.active.r = Math.min(ui.active.r, maxR);
   ui.anchor.r = Math.min(ui.anchor.r, maxR);
   renderFormulaBar();
+  if (typeof tourRefresh === "function") tourRefresh();
 }
 
 function renderFormulaBar() {
@@ -637,11 +695,14 @@ function applyToSelection(shiftId) {
 function askPartialShift() {
   if (!canEdit() || !ui.rowIds.length) return;
   const cur = cellShift(ui.rowIds[ui.active.r], ui.active.c);
-  const v = prompt("Partial shift times (24-hour), e.g. 0700-1100", shiftInfo(cur).custom ? cur : "0700-1100");
-  if (v === null) return;
-  const id = parseShift(v);
-  if (!id || !CUSTOM_RE.test(id)) return alert("Use two 4-digit times like 0700-1100, with the end after the start.");
-  applyToSelection(id);
+  ask({ title: "Partial shift", message: "Start and end in 24-hour time, e.g. 0700-1100.", input: { value: shiftInfo(cur).custom ? cur : "0700-1100" }, ok: "Set shift" })
+    .then((v) => {
+      if (v === null) return;
+      const id = parseShift(v);
+      if (!id || !CUSTOM_RE.test(id)) return toast("Use two 4-digit times like 0700-1100, with the end after the start.");
+      applyToSelection(id);
+      sheet.focus({ preventScroll: true });
+    });
 }
 function cycleSelection() {
   const cur = cellShift(ui.rowIds[ui.active.r], ui.active.c);
@@ -658,11 +719,11 @@ function moveSel(dr, dc, extend) {
   $("#schedTable td.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
-function exportCsv() {
+function copyForExcel() {
   const week = isWeek();
-  const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
-  const head = ["Department", "Name", "Job title", ...DAY_NAMES.map((d, c) => (week ? `${d} ${colDay(c)}` : d)), "Shifts", "Hours"];
-  const lines = [head.map(q).join(",")];
+  const clean = (v) => String(v).replace(/[\t\n]/g, " ");
+  const head = ["Department", "Name", "Job title", ...DAY_NAMES.map((d, c) => (week ? `${d} ${fmt(colDay(c))}` : d)), "Shifts", "Hours"];
+  const lines = [head.join("\t")];
   for (const g of state.groups) {
     for (const s of state.staff.filter((x) => x.groupId === g.id)) {
       let shifts = 0, hours = 0;
@@ -673,13 +734,11 @@ function exportCsv() {
         const label = shift ? shiftLabel(shift) : "";
         return appr ? `${label} (${appr.r.type} off ${appr.d.part.t1}-${appr.d.part.t2})` : label;
       });
-      lines.push([g.name, s.name, s.role || "", ...days, shifts, round1(hours)].map(q).join(","));
+      lines.push([g.name, s.name, s.role || "", ...days, shifts, round1(hours)].map(clean).join("\t"));
     }
   }
-  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv" });
-  const name = week ? `gi-hep-schedule-${ui.schedWeek}.csv` : "gi-hep-schedule-pattern.csv";
-  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: name });
-  a.click(); URL.revokeObjectURL(a.href);
+  const what = week ? `Week of ${fmt(ui.schedWeek)}` : "Repeating pattern";
+  copyText(lines.join("\n"), `${what} copied (${lines.length - 1} staff). Paste it into Excel.`);
 }
 
 // ---------- requests ----------
@@ -940,14 +999,13 @@ document.body.addEventListener("click", (e) => {
   const sub = e.target.closest(".submit-review");
   if (sub) submitReview(sub.dataset.req);
   const del = e.target.closest("[data-del]");
-  if (del && confirm("Delete this request?")) {
-    state.requests = state.requests.filter((r) => r.id !== del.dataset.del); commit();
-  }
+  if (del) ask({ title: "Delete this request?", message: "It disappears from the calendar, schedule and every queue.", ok: "Delete", danger: true }).then((yes) => {
+    if (yes) { state.requests = state.requests.filter((r) => r.id !== del.dataset.del); commit(); }
+  });
   const wd = e.target.closest("[data-withdraw]");
-  if (wd && confirm("Withdraw this request?")) {
-    state.requests = state.requests.filter((r) => r.id !== wd.dataset.withdraw);
-    ui.notice = "Request withdrawn."; commit();
-  }
+  if (wd) ask({ title: "Withdraw this request?", ok: "Withdraw", danger: true }).then((yes) => {
+    if (yes) { state.requests = state.requests.filter((r) => r.id !== wd.dataset.withdraw); ui.notice = "Request withdrawn."; commit(); }
+  });
 });
 // Manager: typing partial times selects "Approve partial only" for that day
 $("#queue").addEventListener("input", (e) => {
@@ -966,12 +1024,12 @@ $("#toggleAll").onclick = () => {
   ui.collapsed = ui.collapsed.size === state.groups.length ? new Set() : new Set(state.groups.map((g) => g.id));
   renderSchedule();
 };
-$("#resetWeek").onclick = () => {
-  if (!confirm("Remove all one-week changes for this week?")) return;
+$("#resetWeek").onclick = () => ask({ title: "Reset this week?", message: "Removes every one-week change and goes back to the repeating pattern.", ok: "Reset week", danger: true }).then((yes) => {
+  if (!yes) return;
   for (let c = 0; c < 7; c++) delete state.overrides[colDay(c)];
   commit();
-};
-$("#exportCsv").onclick = exportCsv;
+});
+$("#exportCsv").onclick = copyForExcel;
 $("#shiftBtns").addEventListener("click", (e) => {
   const b = e.target.closest("[data-set]");
   if (!b) return;
@@ -1011,11 +1069,13 @@ sheet.addEventListener("click", (e) => {
     ui.collapsed.has(g.id) ? ui.collapsed.delete(g.id) : ui.collapsed.add(g.id);
     renderSchedule();
   } else if (t.dataset.rename) {
-    const name = prompt("Department name", g.name);
-    if (name && name.trim()) { g.name = name.trim(); commit(); }
+    ask({ title: "Rename department", input: { value: g.name }, ok: "Rename" }).then((name) => {
+      if (name && name.trim()) { g.name = name.trim(); commit(); }
+    });
   } else {
-    const n = prompt(`Minimum ${g.name} staff needed each open day`, g.min);
-    if (n !== null && n.trim() !== "" && !Number.isNaN(Number(n))) { g.min = Math.max(0, Math.floor(Number(n))); commit(); }
+    ask({ title: `${g.name} minimum`, message: "How many people this department needs on each open day.", input: { value: String(g.min), numeric: true }, ok: "Save" }).then((n) => {
+      if (n !== null && n.trim() !== "" && !Number.isNaN(Number(n))) { g.min = Math.max(0, Math.floor(Number(n))); commit(); }
+    });
   }
 });
 sheet.addEventListener("keydown", (e) => {
@@ -1131,23 +1191,22 @@ $("#staffForm").onsubmit = (e) => {
 };
 $("#staffList").addEventListener("click", (e) => {
   const id = e.target.dataset.remove;
-  if (!id || !confirm(`Remove ${staffById(id).name} and their requests?`)) return;
-  state.staff = state.staff.filter((s) => s.id !== id);
-  state.requests = state.requests.filter((r) => r.staffId !== id);
-  delete state.schedule[id];
-  for (const k of Object.keys(state.overrides)) delete state.overrides[k][id];
-  commit();
+  if (!id) return;
+  ask({ title: `Remove ${staffById(id).name}?`, message: "Their shifts and requests are removed too.", ok: "Remove", danger: true }).then((yes) => {
+    if (!yes) return;
+    state.staff = state.staff.filter((s) => s.id !== id);
+    state.requests = state.requests.filter((r) => r.staffId !== id);
+    delete state.schedule[id];
+    for (const k of Object.keys(state.overrides)) delete state.overrides[k][id];
+    commit();
+  });
 });
 $("#staffList").addEventListener("change", (e) => {
   const id = e.target.dataset.groupFor;
   if (id) { staffById(id).groupId = e.target.value; commit(); }
 });
 
-$("#exportBtn").onclick = () => {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "gi-hep-schedule.json" });
-  a.click(); URL.revokeObjectURL(a.href);
-};
+$("#exportBtn").onclick = () => copyText(JSON.stringify(state), "Data copied. Save it in a text file to import later.");
 $("#importFile").onchange = async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -1156,10 +1215,11 @@ $("#importFile").onchange = async (e) => {
     if (!Array.isArray(data.staff) || !Array.isArray(data.requests)) throw new Error("bad file");
     state = normalize(data);
     commit();
-  } catch { alert("That file doesn't look like a schedule export."); }
+  } catch { toast("That file isn't a schedule export. Choose a file made with Copy data."); }
   e.target.value = "";
 };
-$("#resetBtn").onclick = () => { if (confirm("Replace all data with demo data?")) { state = demoData(); commit(); } };
+$("#resetBtn").onclick = () => ask({ title: "Reset to demo data?", message: "Replaces everything in this browser with the original demo staff, schedule and requests.", ok: "Reset", danger: true })
+  .then((yes) => { if (yes) { state = demoData(); commit(); toast("Demo data restored."); } });
 
 state = load();
 render();
