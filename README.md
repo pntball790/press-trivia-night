@@ -16,7 +16,7 @@ Requests end as Approved, Denied or Partially Approved. Approved days appear on 
 
 ## Tabs
 
-- **Vacation calendar** – month view in department colors (solid = approved, dashed = pending, ½ = partial shift). Each day shows `working/scheduled`; open days below minimum staffing are outlined red. Click a day for who's working by department, who's off and pending requests.
+- **Vacation calendar** – manager-approved time off fills in automatically, in department colors (½ = partial shift). Tick "Show pending" to also see requests still under review (dashed). Each day shows `working/scheduled`; open days below minimum staffing are outlined red. Click a day for who's working by department, who's off and pending requests.
 - **Staff schedule** – Excel-style grid with all staff in 10 departments (Adv, Care Assist GI, Care Assist Hep, Charge Team, ECC/Notable, Gen GI, Hep, IBD, Motility, Per Diem Nurses). Departments collapse, can be renamed (✎) and each has a minimum headcount per open day.
   - **Week** view: real dates, approved time off (striped), partial days (½), pending requests (amber outline). Edits apply to that week only (corner marker).
   - **Repeating pattern** view: the shifts that repeat every week.

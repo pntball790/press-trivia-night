@@ -46,7 +46,7 @@ let state = null; // loaded at the bottom of the file, once all helpers exist
 const ui = {
   role: "employee", me: null,
   view: "calendar", notice: "",
-  month: fromKey(todayKey()), selected: todayKey(), showPending: true,
+  month: fromKey(todayKey()), selected: todayKey(), showPending: false,
   schedMode: "week", schedWeek: weekStart(todayKey()), search: "", collapsed: new Set(),
   anchor: { r: 0, c: 0 }, active: { r: 0, c: 0 }, dragging: false, rowIds: [], rowNum: {},
 };
