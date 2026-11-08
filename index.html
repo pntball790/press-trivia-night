@@ -48,9 +48,32 @@
 
     <!-- Weekly schedule -->
     <section id="view-schedule" class="view">
-      <p class="muted">Recurring weekly shifts. Click a cell to cycle through shifts. The calendar uses this schedule and removes anyone on approved time off.</p>
-      <div class="shift-key" id="shiftKey"></div>
-      <div class="table-wrap"><table class="sched" id="schedTable"></table></div>
+      <div class="toolbar sheet-toolbar">
+        <div class="seg" role="group" aria-label="Schedule mode">
+          <button data-mode="week">Week</button>
+          <button data-mode="template">Repeating pattern</button>
+        </div>
+        <span id="weekNav" class="week-nav">
+          <button id="prevWeek" aria-label="Previous week">‹</button>
+          <button id="thisWeek" class="ghost">This week</button>
+          <button id="nextWeek" aria-label="Next week">›</button>
+        </span>
+        <strong id="weekLabel"></strong>
+      </div>
+      <div class="toolbar sheet-toolbar">
+        <input id="sheetSearch" type="search" placeholder="Filter staff…" />
+        <button class="ghost" id="toggleAll">Collapse all</button>
+        <button class="ghost" id="resetWeek">Reset week to pattern</button>
+        <button class="ghost" id="exportCsv">Export to Excel (CSV)</button>
+      </div>
+      <div class="formula-bar">
+        <span id="nameBox" class="name-box"></span>
+        <span class="fx-label">fx</span>
+        <span id="fx" class="fx"></span>
+        <span class="shift-btns" id="shiftBtns"></span>
+      </div>
+      <div class="sheet-wrap" id="sheet" tabindex="0"><table class="sheet" id="schedTable"></table></div>
+      <p class="muted hint">Click or drag to select cells · type <b>O</b> Open, <b>C</b> Close, <b>D</b> Double, <b>X</b>/Delete Off · Enter or double-click cycles · Ctrl+C / Ctrl+V copy and paste (works with Excel). In <b>Week</b> view, edits apply to that week only (corner marker) and approved time off is shown. In <b>Repeating pattern</b>, edits apply to every week. Use ✎ on a group row to rename it, and "min" to set how many people that group needs each day.</p>
     </section>
 
     <!-- Requests -->
@@ -85,11 +108,8 @@
       <form id="staffForm" class="card form-grid">
         <h3>Add staff member</h3>
         <label>Name <input id="staffName" required /></label>
-        <label>Role
-          <select id="staffRole">
-            <option>Host</option><option>Bartender</option><option>Server</option><option>Kitchen</option><option>Manager</option>
-          </select>
-        </label>
+        <label>Job title <input id="staffRole" placeholder="e.g. Bartender" /></label>
+        <label>Group <select id="staffGroup"></select></label>
         <label>Annual vacation days <input id="staffAllow" type="number" min="0" value="10" /></label>
         <div class="wide"><button type="submit">Add</button></div>
       </form>
