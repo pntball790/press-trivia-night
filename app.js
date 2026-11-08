@@ -343,6 +343,9 @@ const initials = (name) => {
 const avatar = (s) => `<span class="avatar" style="background:${groupOf(s).color}">${esc(initials(s.name))}</span>`;
 const statusChip = (st) => `<span class="schip st-${st.split(" ")[0]}">${st}</span>`;
 const canEdit = () => ui.role !== "employee";
+// Charge nurses and managers see who is off; staff see their own time off and only the department for everyone else.
+const seesNames = () => ui.role !== "employee";
+const visibleTo = (staffId) => seesNames() || staffId === ui.me;
 const timeInput = (attrs, value = "", ph = "") => `<input class="t4" maxlength="4" inputmode="numeric" placeholder="${ph}" value="${esc(value)}" ${attrs} />`;
 
 // In-page dialog. The artifact viewer blocks alert/confirm/prompt, so everything goes through this.
@@ -439,7 +442,7 @@ function renderCalendar() {
   $("#monthLabel").textContent = first.toLocaleDateString(undefined, { month: "long", year: "numeric" });
   $("#calHead").innerHTML = DAY_NAMES.map((d) => `<div>${d}</div>`).join("");
   $("#legend").innerHTML = `<span><i class="dot approved"></i>Approved</span><span><i class="dot pending"></i>Pending review</span>
-    <span><i class="dot warn"></i>Short-staffed</span><span class="muted">½ = partial shift</span>` +
+    <span><i class="dot warn"></i>Short-staffed</span><span class="muted">½ = partial shift</span>${seesNames() ? "" : '<span class="muted">Coworkers shown by department</span>'}` +
     state.groups.map((g) => `<span class="dept" style="background:${g.color}">${esc(g.name)}</span>`).join("");
 
   const start = new Date(first); start.setDate(1 - first.getDay());
@@ -457,25 +460,87 @@ function renderCalendar() {
     if (k === today) cls.push("today");
     if (k === ui.selected) cls.push("selected");
     if (info.gap) cls.push("gap");
-    const chips = entries.slice(0, 3).map(({ r, d: day }) => {
-      const s = staffById(r.staffId);
-      if (!s) return "";
-      const g = groupOf(s);
-      const approved = day.stage === "approved";
-      const style = approved ? `background:${g.color}` : `border-left-color:${g.color}`;
-      const when = day.part ? ` ${day.part.t1}–${day.part.t2}` : "";
-      return `<span class="chip ${approved ? "approved" : "pending"}" style="${style}" title="${esc(s.name)} · ${esc(g.name)} · ${r.type}${when} · ${STAGE_LABEL[day.stage]}">${esc(lastName(s.name))}${day.part ? " ½" : ""}</span>`;
-    }).join("");
-    const more = entries.length > 3 ? `<span class="more">+${entries.length - 3} more</span>` : "";
+    const all = calChips(entries);
+    const chips = all.slice(0, 3).join("");
+    const more = all.length > 3 ? `<span class="more">+${all.length - 3} more</span>` : "";
     const count = info.scheduled.length ? `<span class="count" title="Working / scheduled">${info.working.length}/${info.scheduled.length}</span>` : "";
     html += `<button class="${cls.join(" ")}" data-day="${k}"><span class="num">${d.getDate()}${count}</span>${chips}${more}</button>`;
   }
   $("#calGrid").innerHTML = html;
 }
 
+// Calendar chips: names for charge/manager; for staff, "You" plus one chip per department.
+function calChips(entries) {
+  const chip = (approved, color, title, label) =>
+    `<span class="chip ${approved ? "approved" : "pending"}" style="${approved ? `background:${color}` : `border-left-color:${color}`}" title="${esc(title)}">${esc(label)}</span>`;
+  const when = (d) => (d.part ? ` ${d.part.t1}–${d.part.t2}` : "");
+  if (seesNames()) {
+    return entries.map(({ r, d }) => {
+      const s = staffById(r.staffId);
+      if (!s) return "";
+      const g = groupOf(s);
+      return chip(d.stage === "approved", g.color, `${s.name} · ${g.name} · ${r.type}${when(d)} · ${STAGE_LABEL[d.stage]}`, `${lastName(s.name)}${d.part ? " ½" : ""}`);
+    }).filter(Boolean);
+  }
+  const mine = [], depts = new Map();
+  for (const { r, d } of entries) {
+    const s = staffById(r.staffId);
+    if (!s) continue;
+    const approved = d.stage === "approved";
+    if (s.id === ui.me) {
+      mine.push(chip(approved, groupOf(s).color, `Your ${r.type}${when(d)} · ${STAGE_LABEL[d.stage]}`, `You${d.part ? " ½" : ""}`));
+      continue;
+    }
+    const key = `${s.groupId}|${approved}`;
+    const e = depts.get(key) || { g: groupOf(s), approved, n: 0, partial: 0 };
+    e.n++;
+    if (d.part) e.partial++;
+    depts.set(key, e);
+  }
+  const others = [...depts.values()].map(({ g, approved, n, partial }) =>
+    chip(approved, g.color, `${g.name}: ${n} ${approved ? "off" : "requested off"}${partial ? ` (${partial} partial day${partial > 1 ? "s" : ""})` : ""}`,
+      `${g.name}${n > 1 ? ` ×${n}` : ""}${partial === n ? " ½" : ""}`));
+  return [...mine, ...others];
+}
+
+// Staff view of a day: their own shift and status, then department counts only.
+function renderDayPanelStaff(k, info) {
+  const me = staffById(ui.me);
+  const myShift = me && shiftFor(me.id, k);
+  const myEntry = me && dayEntries(k, ["approved", ...PENDING]).find(({ r }) => r.staffId === me.id);
+  const mine = myEntry
+    ? `${myEntry.r.type}${myEntry.d.part ? ` ${myEntry.d.part.t1}–${myEntry.d.part.t2}` : ""} · ${STAGE_LABEL[myEntry.d.stage]}`
+    : myShift ? `${shiftLabel(myShift)} ${shiftInfo(myShift).time}` : "Not scheduled";
+  const rows = state.groups.map((g) => {
+    const sched = info.scheduled.filter((s) => s.groupId === g.id).length;
+    if (!sched) return "";
+    const work = info.working.filter((s) => s.groupId === g.id).length;
+    const partial = dayEntries(k, ["approved"]).filter(({ r, d }) => d.part && staffById(r.staffId)?.groupId === g.id).length;
+    const short = info.open && g.min && work < g.min;
+    return `<li><span class="dept" style="background:${g.color}">${esc(g.name)}</span>
+      <span class="${short ? "conflict" : "muted"}">${work} of ${sched} working${sched - work ? ` · ${sched - work} off` : ""}${partial ? ` · ${partial} partial` : ""}</span></li>`;
+  }).join("");
+  const alerts = [];
+  if (info.totalShort) alerts.push(`Only ${info.working.length} working; unit minimum is ${state.settings.minStaff}.`);
+  for (const { g, have } of info.short) alerts.push(`${g.name}: ${have} of ${g.min} needed.`);
+  for (const x of info.partialShort) alerts.push(`${x.g.name}: short from ${x.t1}–${x.t2}.`);
+  $("#dayPanel").innerHTML = `
+    <h3>${fmt(k, { weekday: "long", month: "long", day: "numeric" })}</h3>
+    <div class="muted">${info.open ? `${info.working.length} working of ${info.scheduled.length} scheduled` : "Unit closed"}</div>
+    ${alerts.map((a) => `<div class="alert">${esc(a)}</div>`).join("")}
+    <h4>Your day</h4><ul><li><span class="who">${me ? avatar(me) + esc(me.name) : ""}</span><span class="muted">${esc(mine)}</span></li></ul>
+    ${rows ? `<h4>By department</h4><ul class="dept-rows">${rows}</ul>` : ""}
+    <p class="muted small-note">Coworkers' time off shows by department only.</p>
+    <div class="panel-actions">
+      <button class="ghost small" id="requestForDay">+ Request this day off</button>
+      <button class="ghost small" id="openWeek">Open week in schedule</button>
+    </div>`;
+}
+
 function renderDayPanel() {
   const k = ui.selected;
   const info = dayInfo(k);
+  if (!seesNames()) return renderDayPanelStaff(k, info);
   const grouped = (list, row) => state.groups.map((g) => {
     const m = list.filter((s) => s.groupId === g.id);
     return m.length ? `<li class="ghead" style="--g:${g.color}">${esc(g.name)} <span class="muted">(${m.length}${g.min && info.open ? ` / min ${g.min}` : ""})</span></li>${m.map(row).join("")}` : "";
@@ -523,7 +588,10 @@ const isWeek = () => ui.schedMode === "week";
 const colDay = (c) => addDays(ui.schedWeek, c);
 const colLetter = (i) => String.fromCharCode(65 + i); // A = Staff, B..H = days
 const cellShift = (staffId, c) => (isWeek() ? shiftFor(staffId, colDay(c)) : templateShift(staffId, c));
-const cellEntries = (staffId, c, stages) => (isWeek() ? dayEntries(colDay(c), stages).filter(({ r }) => r.staffId === staffId) : []);
+const cellEntries = (staffId, c, stages) =>
+  (isWeek() && visibleTo(staffId) ? dayEntries(colDay(c), stages).filter(({ r }) => r.staffId === staffId) : []);
+// Hours for a cell; staff don't see coworkers' partial time off, so theirs show the scheduled hours.
+const cellHours = (staffId, c, shift) => (isWeek() && visibleTo(staffId) ? hoursWorked(staffId, colDay(c), shift) : shiftInfo(shift).hours);
 const colOpen = (c) => state.settings.openDays.includes(c);
 
 function setCell(staffId, c, shiftId) {
@@ -569,7 +637,7 @@ function renderSchedule() {
     : '<span class="muted">View only</span>';
   $("#sheetHint").innerHTML = edit
     ? `Click or drag to select · type ${SHIFTS.filter((s) => s.id).map((s) => `<b>${s.key.toUpperCase()}</b> ${s.label} (${s.time})`).join(", ")}, <b>P</b> for a partial shift (e.g. 0700-1100), <b>X</b>/Delete Off · Enter or double-click cycles · Ctrl+C / Ctrl+V works with Excel (times like 0700-1100 paste too). In <b>Week</b>, edits apply to that week only (corner marker); approved time off is striped and partial time off shows ½ with hours reduced. <b>Repeating pattern</b> edits apply every week. ✎ renames a department; "min" sets how many it needs per open day.`
-    : "Employees can view the schedule. Switch to Charge nurse or Manager to edit it.";
+    : "Employees can view the schedule but not edit it. Your own time off is marked; coworkers' time off only shows in the department counts. Switch to Charge nurse or Manager to see who is off and to edit.";
 
   const q = ui.search.trim().toLowerCase();
   const match = (s) => !q || s.name.toLowerCase().includes(q) || (s.role || "").toLowerCase().includes(q);
@@ -630,7 +698,7 @@ function renderSchedule() {
             text = `½ ${text || TYPE_ABBR[appr.r.type]}`;
             title = `Off ${appr.d.part.t1}–${appr.d.part.t2}`;
           }
-          if (shift) { shifts++; hours += week ? hoursWorked(s.id, key, shift) : shiftInfo(shift).hours; }
+          if (shift) { shifts++; hours += cellHours(s.id, c, shift); }
         }
         if (pend) cls.push("pend");
         return `<td class="${cls.join(" ")}" data-staff="${s.id}" data-c="${c}"${title ? ` title="${title}"` : ""}>${text}</td>`;
@@ -730,7 +798,7 @@ function copyForExcel() {
       const days = DAY_NAMES.map((_, c) => {
         const shift = cellShift(s.id, c), appr = cellEntries(s.id, c, ["approved"])[0];
         if (appr && !appr.d.part) return `${appr.r.type}${shift ? ` (${shiftLabel(shift)})` : ""}`;
-        if (shift) { shifts++; hours += week ? hoursWorked(s.id, colDay(c), shift) : shiftInfo(shift).hours; }
+        if (shift) { shifts++; hours += cellHours(s.id, c, shift); }
         const label = shift ? shiftLabel(shift) : "";
         return appr ? `${label} (${appr.r.type} off ${appr.d.part.t1}-${appr.d.part.t2})` : label;
       });

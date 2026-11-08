@@ -14,7 +14,7 @@ A **Walkthrough** (top right, and offered on first visit) resets the demo data a
 
 Switch roles at the top of the page:
 
-- **Employee** – pick who you are, submit time off (full or partial shift with 24-hour times), see each day's status, withdraw requests not yet reviewed. Schedule is view-only.
+- **Employee** – sees coworkers' time off by department only (no names or leave types); their own time off in full. Pick who you are, submit time off (full or partial shift with 24-hour times), see each day's status, withdraw requests not yet reviewed. Schedule is view-only.
 - **Charge nurse** – review queue: mark each requested day Available / Unavailable / Override Recommended with a required comment. Shows coverage for that department if the day were approved.
 - **Manager** – review queue: approve or deny each day (with charge recommendation and coverage shown), partial-day exception checkbox, internal note. Also manages staff.
 

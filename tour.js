@@ -80,7 +80,7 @@ const STEPS = [
   },
   {
     title: "Vacation calendar",
-    body: "Manager-approved time off fills in here automatically, in each department's color. ½ marks a partial day. The numbers show working / scheduled staff, and a red outline means a department or the unit is below its minimum.",
+    body: "Manager-approved time off fills in here automatically, in each department's color. ½ marks a partial day. The numbers show working / scheduled staff, and a red outline means a department or the unit is below its minimum. Managers and charge nurses see names; staff only see which department is off.",
     target: "#calGrid",
     before() { goto("calendar", "manager"); ui.month = monthOf(todayKey()); ui.selected = todayKey(); },
   },

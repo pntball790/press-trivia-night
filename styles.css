@@ -427,3 +427,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, .tab:focus-visi
   .tour { left: max(8px, env(safe-area-inset-left, 0px)); right: max(8px, env(safe-area-inset-right, 0px)); width: auto; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
   .tour p { font-size: .86rem; }
 }
+
+/* staff view of a day: department counts */
+.dept-rows li { align-items: center; }
+.dept-rows .dept { color: #1a1a1a; border-radius: 4px; padding: 1px 8px; font-size: .8rem; }
+.small-note { font-size: .78rem; margin: 10px 0 0; }
