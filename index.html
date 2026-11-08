@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Staff Vacation Calendar</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Staff Vacation Calendar</h1>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-view="calendar">Calendar</button>
+      <button class="tab" data-view="schedule">Staff schedule</button>
+      <button class="tab" data-view="requests">Vacation requests <span id="pendingBadge" class="badge" hidden></span></button>
+      <button class="tab" data-view="staff">Staff</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Calendar -->
+    <section id="view-calendar" class="view active">
+      <div class="toolbar">
+        <button id="prevMonth" aria-label="Previous month">‹</button>
+        <h2 id="monthLabel"></h2>
+        <button id="nextMonth" aria-label="Next month">›</button>
+        <button id="todayBtn" class="ghost">Today</button>
+        <label class="inline">Min staff/day
+          <input id="minStaff" type="number" min="0" max="20" />
+        </label>
+        <label class="inline"><input id="showPending" type="checkbox" checked /> Show pending</label>
+      </div>
+      <div class="legend">
+        <span><i class="dot approved"></i>Approved time off</span>
+        <span><i class="dot pending"></i>Pending request</span>
+        <span><i class="dot warn"></i>Coverage gap</span>
+      </div>
+      <div class="cal-layout">
+        <div>
+          <div class="cal-head" id="calHead"></div>
+          <div class="cal-grid" id="calGrid"></div>
+        </div>
+        <aside class="day-panel" id="dayPanel">
+          <p class="muted">Select a day to see who's working and who's off.</p>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Weekly schedule -->
+    <section id="view-schedule" class="view">
+      <p class="muted">Recurring weekly shifts. Click a cell to cycle through shifts. The calendar uses this schedule and removes anyone on approved time off.</p>
+      <div class="shift-key" id="shiftKey"></div>
+      <div class="table-wrap"><table class="sched" id="schedTable"></table></div>
+    </section>
+
+    <!-- Requests -->
+    <section id="view-requests" class="view">
+      <form id="reqForm" class="card form-grid">
+        <h3>New time-off request</h3>
+        <label>Staff member <select id="reqStaff" required></select></label>
+        <label>Type
+          <select id="reqType">
+            <option>Vacation</option><option>Personal</option><option>Sick</option>
+          </select>
+        </label>
+        <label>Start <input id="reqStart" type="date" required /></label>
+        <label>End <input id="reqEnd" type="date" required /></label>
+        <label class="wide">Note <input id="reqNote" type="text" placeholder="Optional" /></label>
+        <div id="reqImpact" class="wide impact" hidden></div>
+        <div class="wide"><button type="submit">Submit request</button></div>
+      </form>
+      <div class="filter-row">
+        <label class="inline">Filter
+          <select id="reqFilter">
+            <option value="all">All</option><option value="pending">Pending</option>
+            <option value="approved">Approved</option><option value="denied">Denied</option>
+          </select>
+        </label>
+      </div>
+      <div id="reqList" class="req-list"></div>
+    </section>
+
+    <!-- Staff -->
+    <section id="view-staff" class="view">
+      <form id="staffForm" class="card form-grid">
+        <h3>Add staff member</h3>
+        <label>Name <input id="staffName" required /></label>
+        <label>Role
+          <select id="staffRole">
+            <option>Host</option><option>Bartender</option><option>Server</option><option>Kitchen</option><option>Manager</option>
+          </select>
+        </label>
+        <label>Annual vacation days <input id="staffAllow" type="number" min="0" value="10" /></label>
+        <div class="wide"><button type="submit">Add</button></div>
+      </form>
+      <div id="staffList" class="staff-list"></div>
+      <div class="card data-tools">
+        <h3>Data</h3>
+        <p class="muted">Everything is saved in this browser only (localStorage).</p>
+        <button id="exportBtn" class="ghost">Export JSON</button>
+        <label class="ghost file-btn">Import JSON <input id="importFile" type="file" accept="application/json" hidden /></label>
+        <button id="resetBtn" class="danger">Reset to demo data</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
