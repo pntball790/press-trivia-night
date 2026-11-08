@@ -1,26 +1,36 @@
-# Staff Vacation Calendar (prototype)
+# GI/Hep Staff Schedule & Vacation Calendar (prototype)
 
-A no-build, browser-only prototype that combines a **weekly staff schedule** with a **vacation / time-off calendar**.
+A no-build, browser-only prototype that combines an Excel-style **staff schedule** with the **GI/Hep vacation request** workflow (charge nurse → manager review) and a **vacation calendar**.
 
 Open `index.html` in a browser (or run `python3 -m http.server` and visit http://localhost:8000). Data is saved in the browser's localStorage and starts with demo data.
 
+## Roles
+
+Switch roles at the top of the page:
+
+- **Employee** – pick who you are, submit time off (full or partial shift with 24-hour times), see each day's status, withdraw requests not yet reviewed. Schedule is view-only.
+- **Charge nurse** – review queue: mark each requested day Available / Unavailable / Override Recommended with a required comment. Shows coverage for that department if the day were approved.
+- **Manager** – review queue: approve or deny each day (with charge recommendation and coverage shown), partial-day exception checkbox, internal note. Also manages staff.
+
+Requests end as Approved, Denied or Partially Approved. Approved days appear on the calendar and in the schedule automatically.
+
 ## Tabs
 
-- **Calendar** – month view of approved (solid) and pending (dashed) time off. Each day shows `working/scheduled` staff. Days below the minimum staffing level are outlined red. Click a day to see who is working which shift, who is off, and approve/deny pending requests in place.
-- **Staff schedule** – an Excel-style grid with all staff organised into 7 groups (Management, Bar, Servers, Kitchen, Hosts & Door, Trivia & Events, Support). Groups collapse, can be renamed (✎) and each has a minimum headcount per day; group rows and the total row turn red when short.
-  - **Week** view shows real dates, approved time off (striped `VAC`/`PTO`/`SICK` cells) and pending requests (amber outline). Edits apply to that week only (corner marker).
-  - **Repeating pattern** view edits the shifts that repeat every week.
-  - Spreadsheet controls: click/drag/shift-click to select, arrow keys to move, type `O`/`C`/`D` (Open/Close/Double), `X`/Delete for off, Enter or double-click to cycle, Ctrl+C / Ctrl+V (works to and from Excel). On a phone, tap a cell and use the shift buttons above the grid.
-  - Name box + formula bar show the selected cell and its details. Filter box, collapse all, and **Export to Excel (CSV)**.
-- **Vacation requests** – submit a request and see its impact before submitting (shifts missed, vacation used vs. allowance, days that would drop below minimum staffing). Approve, deny or reopen requests.
-- **Staff** – add/remove staff, set annual vacation allowance, see days used. Export/import JSON or reset to demo data.
+- **Vacation calendar** – month view in department colors (solid = approved, dashed = pending, ½ = partial shift). Each day shows `working/scheduled`; open days below minimum staffing are outlined red. Click a day for who's working by department, who's off and pending requests.
+- **Staff schedule** – Excel-style grid with all staff in 10 departments (Adv, Care Assist GI, Care Assist Hep, Charge Team, ECC/Notable, Gen GI, Hep, IBD, Motility, Per Diem Nurses). Departments collapse, can be renamed (✎) and each has a minimum headcount per open day.
+  - **Week** view: real dates, approved time off (striped), partial days (½), pending requests (amber outline). Edits apply to that week only (corner marker).
+  - **Repeating pattern** view: the shifts that repeat every week.
+  - Shifts: Day 0700–1530, Mid 0900–1730, Late 1100–1930, 10hr 0700–1730.
+  - Controls: click/drag/shift-click to select, arrows, type `D`/`M`/`L`/`T`, `X`/Delete for off, Enter or double-click cycles, Ctrl+C / Ctrl+V (works with Excel), name box + formula bar, filter, **Export to Excel (CSV)**.
+- **Review queue / My requests** – depends on role (see above).
+- **Staff** (manager) – add/remove staff, change department, PTO/vacation allowance and days used; export/import JSON; reset demo data.
 
 ## How the integration works
 
-For any date, the app takes everyone's shift for that date (one-week edit if there is one, otherwise the repeating pattern) and removes anyone with approved time off. That gives the real head count, which is compared to the overall "Min staff/day" setting and to each group's minimum. Vacation days used = scheduled shifts missed by approved *Vacation* requests in that year.
+For any date, the app takes everyone's shift (one-week edit if there is one, otherwise the repeating pattern) and removes anyone with an approved full-day request. Partial-day absences stay in the headcount and are marked ½. The result is compared to the unit minimum ("Min staff/day") and each department's minimum, on open days (Mon–Fri). The review screens use the same calculation to show what approving each day would do.
 
 ## Files
 
 - `index.html` – layout
 - `styles.css` – styling (light/dark, mobile friendly)
-- `app.js` – data model, schedule/vacation logic, rendering
+- `app.js` – data model, schedule/vacation logic, review workflow, rendering

@@ -3,21 +3,33 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Staff Vacation Calendar</title>
+  <title>GI/Hep Staff Schedule</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="topbar">
-    <h1>Staff Vacation Calendar</h1>
+    <div class="title-row">
+      <h1>GI/Hep Staff Schedule &amp; Vacation Calendar</h1>
+      <div class="role">
+        <div class="seg" id="roleSeg" role="group" aria-label="View as role">
+          <button data-role="employee">Employee</button>
+          <button data-role="charge">Charge nurse</button>
+          <button data-role="manager">Manager</button>
+        </div>
+        <select id="meSelect" aria-label="Viewing as employee"></select>
+      </div>
+    </div>
     <nav class="tabs" role="tablist">
-      <button class="tab active" data-view="calendar">Calendar</button>
+      <button class="tab active" data-view="calendar">Vacation calendar</button>
       <button class="tab" data-view="schedule">Staff schedule</button>
-      <button class="tab" data-view="requests">Vacation requests <span id="pendingBadge" class="badge" hidden></span></button>
-      <button class="tab" data-view="staff">Staff</button>
+      <button class="tab" data-view="requests"><span id="reqTabLabel">Requests</span> <span id="pendingBadge" class="badge" hidden></span></button>
+      <button class="tab" data-view="staff" id="staffTab">Staff</button>
     </nav>
   </header>
 
   <main>
+    <div class="banner">Prototype with demo data, saved in this browser only. Switch roles at the top to see each person's view.</div>
+
     <!-- Calendar -->
     <section id="view-calendar" class="view active">
       <div class="toolbar">
@@ -26,27 +38,21 @@
         <button id="nextMonth" aria-label="Next month">›</button>
         <button id="todayBtn" class="ghost">Today</button>
         <label class="inline">Min staff/day
-          <input id="minStaff" type="number" min="0" max="20" />
+          <input id="minStaff" type="number" min="0" max="200" />
         </label>
         <label class="inline"><input id="showPending" type="checkbox" checked /> Show pending</label>
       </div>
-      <div class="legend">
-        <span><i class="dot approved"></i>Approved time off</span>
-        <span><i class="dot pending"></i>Pending request</span>
-        <span><i class="dot warn"></i>Coverage gap</span>
-      </div>
+      <div class="legend" id="legend"></div>
       <div class="cal-layout">
         <div>
           <div class="cal-head" id="calHead"></div>
           <div class="cal-grid" id="calGrid"></div>
         </div>
-        <aside class="day-panel" id="dayPanel">
-          <p class="muted">Select a day to see who's working and who's off.</p>
-        </aside>
+        <aside class="day-panel" id="dayPanel"></aside>
       </div>
     </section>
 
-    <!-- Weekly schedule -->
+    <!-- Spreadsheet schedule -->
     <section id="view-schedule" class="view">
       <div class="toolbar sheet-toolbar">
         <div class="seg" role="group" aria-label="Schedule mode">
@@ -73,44 +79,58 @@
         <span class="shift-btns" id="shiftBtns"></span>
       </div>
       <div class="sheet-wrap" id="sheet" tabindex="0"><table class="sheet" id="schedTable"></table></div>
-      <p class="muted hint">Click or drag to select cells · type <b>O</b> Open, <b>C</b> Close, <b>D</b> Double, <b>X</b>/Delete Off · Enter or double-click cycles · Ctrl+C / Ctrl+V copy and paste (works with Excel). In <b>Week</b> view, edits apply to that week only (corner marker) and approved time off is shown. In <b>Repeating pattern</b>, edits apply to every week. Use ✎ on a group row to rename it, and "min" to set how many people that group needs each day.</p>
+      <p class="muted hint" id="sheetHint"></p>
     </section>
 
     <!-- Requests -->
     <section id="view-requests" class="view">
-      <form id="reqForm" class="card form-grid">
-        <h3>New time-off request</h3>
-        <label>Staff member <select id="reqStaff" required></select></label>
-        <label>Type
-          <select id="reqType">
-            <option>Vacation</option><option>Personal</option><option>Sick</option>
-          </select>
-        </label>
-        <label>Start <input id="reqStart" type="date" required /></label>
-        <label>End <input id="reqEnd" type="date" required /></label>
-        <label class="wide">Note <input id="reqNote" type="text" placeholder="Optional" /></label>
-        <div id="reqImpact" class="wide impact" hidden></div>
-        <div class="wide"><button type="submit">Submit request</button></div>
-      </form>
-      <div class="filter-row">
-        <label class="inline">Filter
-          <select id="reqFilter">
-            <option value="all">All</option><option value="pending">Pending</option>
-            <option value="approved">Approved</option><option value="denied">Denied</option>
-          </select>
-        </label>
+      <div id="notice" class="okmsg" hidden></div>
+
+      <div id="empView">
+        <form id="reqForm" class="card form-grid" novalidate>
+          <h3>New time-off request <small class="muted" id="reqFor"></small></h3>
+          <label>Leave type <select id="reqType"></select></label>
+          <label>Start <input id="reqStart" type="date" /></label>
+          <label>End <input id="reqEnd" type="date" /></label>
+          <label>Shift
+            <select id="reqShift"><option>Full Shift</option><option>Partial Shift</option></select>
+          </label>
+          <label id="partialWrap" hidden>Partial times (24-hour)
+            <span class="times"><input id="reqT1" maxlength="4" inputmode="numeric" placeholder="0835" /> to
+            <input id="reqT2" maxlength="4" inputmode="numeric" placeholder="1200" /></span>
+          </label>
+          <label class="wide">Note <input id="reqNote" type="text" placeholder="Optional" /></label>
+          <div id="reqErrors" class="wide err" hidden></div>
+          <div id="reqImpact" class="wide impact" hidden></div>
+          <div class="wide"><button type="submit">Submit request</button></div>
+        </form>
+        <h3>My requests</h3>
+        <div id="myReqs"></div>
       </div>
-      <div id="reqList" class="req-list"></div>
+
+      <div id="reviewView">
+        <h2 class="left" id="queueTitle"></h2>
+        <div id="queue"></div>
+        <div class="filter-row">
+          <h3 class="inline-h">All requests</h3>
+          <select id="reqFilter" aria-label="Filter requests">
+            <option value="all">All</option><option value="Pending">Pending</option>
+            <option value="Approved">Approved</option><option value="Partially">Partially approved</option>
+            <option value="Denied">Denied</option>
+          </select>
+        </div>
+        <div id="reqList" class="req-list"></div>
+      </div>
     </section>
 
-    <!-- Staff -->
+    <!-- Staff (manager) -->
     <section id="view-staff" class="view">
       <form id="staffForm" class="card form-grid">
         <h3>Add staff member</h3>
-        <label>Name <input id="staffName" required /></label>
-        <label>Job title <input id="staffRole" placeholder="e.g. Bartender" /></label>
-        <label>Group <select id="staffGroup"></select></label>
-        <label>Annual vacation days <input id="staffAllow" type="number" min="0" value="10" /></label>
+        <label>Name (Last, First) <input id="staffName" required placeholder="Doe, Sam" /></label>
+        <label>Job title <input id="staffRole" placeholder="RN" /></label>
+        <label>Department <select id="staffGroup"></select></label>
+        <label>Annual PTO/vacation days <input id="staffAllow" type="number" min="0" value="15" /></label>
         <div class="wide"><button type="submit">Add</button></div>
       </form>
       <div id="staffList" class="staff-list"></div>
