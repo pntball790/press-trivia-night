@@ -14,6 +14,14 @@ Switch roles at the top of the page:
 
 Requests end as Approved, Denied or Partially Approved. Approved days appear on the calendar and in the schedule automatically.
 
+## Partial shifts
+
+- **Requests:** each day in a request can be Full or Partial with its own 24-hour times (e.g. full Monday, off 1200–1530 Tuesday). "Shift (all days)" fills every day at once. Times must fall inside that day's scheduled shift.
+- **Manager:** can approve a full-day request as a partial day ("Approve partial only" with times); the employee sees it was changed.
+- **Coverage:** a partial absence keeps the person in the day's headcount, but the app checks who in their department is on during the hours they're off and flags the day if it drops below the minimum.
+- **Schedule:** press **P** (or the Partial… button) to set a custom/partial shift like `0700-1100`; times also paste from Excel. Approved partial time off shows ½ and the Hours column drops by the hours off.
+- **PTO used:** partial days count by hours off (e.g. 4 of 8 hours = 0.5 day).
+
 ## Tabs
 
 - **Vacation calendar** – manager-approved time off fills in automatically, in department colors (½ = partial shift). Tick "Show pending" to also see requests still under review (dashed). Each day shows `working/scheduled`; open days below minimum staffing are outlined red. Click a day for who's working by department, who's off and pending requests.

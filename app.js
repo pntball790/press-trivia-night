@@ -1,19 +1,20 @@
 // GI/Hep staff schedule + vacation calendar prototype.
 // All data lives in localStorage; no server needed.
 
-const STORAGE_KEY = "giHepSchedule.v1";
+const STORAGE_KEY = "giHepSchedule.v2";
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// start/end are minutes after midnight
 const SHIFTS = [
   { id: null, label: "Off", key: "x", hours: 0 },
-  { id: "day", label: "Day", key: "d", time: "0700–1530", hours: 8 },
-  { id: "mid", label: "Mid", key: "m", time: "0900–1730", hours: 8 },
-  { id: "late", label: "Late", key: "l", time: "1100–1930", hours: 8 },
-  { id: "ten", label: "10hr", key: "t", time: "0700–1730", hours: 10 },
+  { id: "day", label: "Day", key: "d", time: "0700–1530", hours: 8, start: 420, end: 930 },
+  { id: "mid", label: "Mid", key: "m", time: "0900–1730", hours: 8, start: 540, end: 1050 },
+  { id: "late", label: "Late", key: "l", time: "1100–1930", hours: 8, start: 660, end: 1170 },
+  { id: "ten", label: "10hr", key: "t", time: "0700–1730", hours: 10, start: 420, end: 1050 },
 ];
+const CUSTOM_RE = /^(\d{4})-(\d{4})$/; // partial/custom shift stored as "0700-1100"
 const LEAVE_TYPES = ["PTO", "Vacation", "Sick", "Appointment", "Education", "Other"];
 const TYPE_ABBR = { PTO: "PTO", Vacation: "VAC", Sick: "SICK", Appointment: "APPT", Education: "EDU", Other: "OFF" };
 const STAGE_LABEL = { charge: "Pending Charge Review", manager: "Pending Manager Review", approved: "Approved", denied: "Denied" };
-const ROLES = { employee: "Employee", charge: "Charge nurse", manager: "Manager" };
 // Department colors match the GI/Hep vacation request prototype.
 const DEFAULT_GROUPS = [
   ["adv", "Adv", "#D9C2F0", 2],
@@ -28,7 +29,7 @@ const DEFAULT_GROUPS = [
   ["pd", "Per Diem Nurses", "#F2AFA0", 0],
 ].map(([id, name, color, min]) => ({ id, name, color, min }));
 
-// ---------- date helpers (dates are "YYYY-MM-DD" strings in local time) ----------
+// ---------- date / time helpers (dates are "YYYY-MM-DD" strings in local time) ----------
 const pad = (n) => String(n).padStart(2, "0");
 const toKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const fromKey = (k) => { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d); };
@@ -40,23 +41,27 @@ const fmt = (k, opts = { month: "short", day: "numeric" }) => fromKey(k).toLocal
 const fd = (k) => fmt(k, { weekday: "short", month: "short", day: "numeric" });
 // 4-digit military time -> minutes, or null if invalid
 const tm = (s) => (/^\d{4}$/.test(s) && +s.slice(0, 2) < 24 && +s.slice(2) < 60 ? +s.slice(0, 2) * 60 + +s.slice(2) : null);
+const hhmm = (m) => pad(Math.floor(m / 60)) + pad(m % 60);
+const overlap = (a1, a2, b1, b2) => Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
+const round1 = (x) => Math.round(x * 10) / 10;
 
 // ---------- state ----------
 let state = null; // loaded at the bottom of the file, once all helpers exist
 const ui = {
-  role: "employee", me: null,
-  view: "calendar", notice: "",
+  role: "employee", me: null, view: "calendar", notice: "",
   month: fromKey(todayKey()), selected: todayKey(), showPending: false,
   schedMode: "week", schedWeek: weekStart(todayKey()), search: "", collapsed: new Set(),
   anchor: { r: 0, c: 0 }, active: { r: 0, c: 0 }, dragging: false, rowIds: [], rowNum: {},
+  draft: {}, // request form: date -> { partial, t1, t2 }
 };
 ui.month.setDate(1);
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
 
-function makeRequest({ staffId, type, start, end, shift = "Full Shift", t1 = "", t2 = "", note = "", stage = "charge", avail = "", cc = "" }) {
-  const r = { id: uid(), staffId, type, start, end, shift, t1, t2, note, summary: "", created: todayKey(), days: [] };
-  r.days = requestDays(staffId, start, end).map((date) => ({ date, stage, avail, cc, mc: "", exc: false }));
+// part: {t1, t2} applied to every day; parts: { date: {t1, t2} } for individual days
+function makeRequest({ staffId, type, start, end, part = null, parts = {}, note = "", stage = "charge", avail = "", cc = "" }) {
+  const r = { id: uid(), staffId, type, start, end, note, summary: "", created: todayKey(), days: [] };
+  r.days = requestDays(staffId, start, end).map((date) => ({ date, part: parts[date] || part || null, stage, avail, cc, mc: "", exc: false }));
   if (avail) r.summary = summarize(r);
   return r;
 }
@@ -84,23 +89,28 @@ function demoData() {
     staff.push(s);
     schedule[s.id] = [...pattern].map((ch) => code[ch]);
   }
-  // build requests after state exists, since request days depend on the schedule
+  // Fisher (per diem) picks up a partial shift on Wednesdays
+  schedule[staff.find((s) => s.name === "Fisher, Ava").id][3] = "0700-1100";
+  // request days depend on the schedule, so make state available first
   state = { staff, schedule, overrides: {}, groups: DEFAULT_GROUPS.map((g) => ({ ...g })), requests: [], settings: { minStaff: 18, openDays: [1, 2, 3, 4, 5] } };
   const by = (n) => staff.find((s) => s.name === n).id;
   const R = (n, s, e, type, o = {}) => makeRequest({ staffId: by(n), type, start: addDays(t, s), end: addDays(t, e), ...o });
-  const reqs = [
+  // a Tuesday 3+ weeks out, for a mixed full/partial example
+  const tue = addDays(weekStart(addDays(t, 21)), 2);
+  state.requests = [
     R("Smith, Jane", 14, 16, "PTO", { stage: "manager", avail: "Available", cc: "Coverage is fine" }),
-    R("Smith, Jane", 30, 30, "Appointment", { shift: "Partial Shift", t1: "0835", t2: "1200", stage: "manager", avail: "Available", cc: "OK for a half day" }),
+    R("Smith, Jane", 30, 30, "Appointment", { part: { t1: "0835", t2: "1200" }, stage: "manager", avail: "Available", cc: "OK for a half day" }),
     R("Nguyen, Alex", 21, 22, "PTO"),
     R("Patel, Sam", 14, 15, "PTO", { stage: "approved", avail: "Available" }),
-    R("Ortiz, Lena", 16, 16, "PTO", { shift: "Partial Shift", t1: "1300", t2: "1700", stage: "approved", avail: "Available" }),
+    R("Ortiz, Lena", 16, 16, "PTO", { part: { t1: "1300", t2: "1530" }, stage: "approved", avail: "Available" }),
     R("Kim, Dana", 7, 9, "PTO", { stage: "approved", avail: "Available" }),
     R("Lee, Jordan", 15, 17, "Vacation", { note: "Family wedding" }),
     R("Rossi, Nina", -3, -2, "Sick", { stage: "approved", avail: "Available" }),
     R("Reyes, Maria", 28, 32, "Vacation", { note: "Holiday travel" }),
     R("Chen, Wei", 29, 30, "Education", { stage: "denied", avail: "Unavailable", cc: "Adv already short that week" }),
+    makeRequest({ staffId: by("Price, Devon"), type: "PTO", start: addDays(tue, -1), end: tue,
+      parts: { [tue]: { t1: "0700", t2: "1200" } }, note: "Back after lunch on Tuesday" }),
   ];
-  state.requests = reqs;
   return state;
 }
 
@@ -116,11 +126,13 @@ function normalize(data) {
     data.schedule[s.id] ||= Array(7).fill(null);
   }
   for (const r of data.requests) {
-    r.shift ||= "Full Shift";
+    // older exports kept partial times on the request; now they live on each day
+    const oldPart = r.shift === "Partial Shift" && r.t1 ? { t1: r.t1, t2: r.t2 } : null;
     if (!Array.isArray(r.days)) {
       const stage = r.status === "approved" ? "approved" : r.status === "denied" ? "denied" : "manager";
       r.days = [...eachDay(r.start, r.end)].map((date) => ({ date, stage, avail: "", cc: "", mc: "", exc: false }));
     }
+    for (const d of r.days) if (d.part === undefined) d.part = oldPart;
   }
   return data;
 }
@@ -137,16 +149,39 @@ function save() {
 }
 function commit() { save(); render(); }
 
+// ---------- shifts ----------
+function shiftInfo(id) {
+  const m = typeof id === "string" && id.match(CUSTOM_RE);
+  if (m) {
+    const a = tm(m[1]), b = tm(m[2]);
+    return { id, label: `${m[1]}–${m[2]}`, time: `${m[1]}–${m[2]}`, hours: round1((b - a) / 60), start: a, end: b, custom: true };
+  }
+  return SHIFTS.find((s) => s.id === (id || null)) || SHIFTS[0];
+}
+const shiftLabel = (id) => shiftInfo(id).label;
+const shiftCls = (id) => (!id ? "off" : shiftInfo(id).custom ? "custom" : id);
+function parseShift(text) {
+  const t = text.replace(/^½\s*/, "").replace(/^[A-Z]+\s*·\s*/, "").trim().toLowerCase().replace(/[–—]/g, "-").replace(/\s+/g, "");
+  if (!t || t === "off" || t === "-" || t === "x") return null;
+  const m = t.match(CUSTOM_RE);
+  if (m) { const a = tm(m[1]), b = tm(m[2]); return a !== null && b !== null && b > a ? t : undefined; }
+  const s = SHIFTS.find((x) => x.label.toLowerCase() === t || x.key === t);
+  return s ? s.id : undefined; // undefined = unrecognised, leave cell alone
+}
+
 // ---------- schedule + vacation integration ----------
 const staffById = (id) => state.staff.find((s) => s.id === id);
 const groupOf = (s) => state.groups.find((g) => g.id === s.groupId) || state.groups[0];
-const shiftInfo = (id) => SHIFTS.find((s) => s.id === (id || null)) || SHIFTS[0];
-const shiftLabel = (id) => shiftInfo(id).label;
 const templateShift = (staffId, dow) => (state.schedule[staffId] || [])[dow] || null;
 const overrideFor = (staffId, dayKey) => state.overrides[dayKey]?.[staffId];
 const isOpen = (dayKey) => state.settings.openDays.includes(fromKey(dayKey).getDay());
-const isPartial = (r) => r.shift === "Partial Shift";
-const shiftTxt = (r) => (isPartial(r) ? `Partial ${r.t1}–${r.t2}` : "Full shift");
+const dayTxt = (d) => (d.part ? `Partial ${d.part.t1}–${d.part.t2}` : "Full shift");
+function shiftTxt(r) {
+  const parts = r.days.map((d) => (d.part ? `${d.part.t1}-${d.part.t2}` : ""));
+  if (parts.every((p) => !p)) return "Full shift";
+  if (parts.every((p) => p === parts[0])) return dayTxt(r.days[0]);
+  return "Mixed full/partial";
+}
 
 // Shift on a specific date: a one-week edit wins over the repeating pattern.
 function shiftFor(staffId, dayKey) {
@@ -164,8 +199,37 @@ function requestDays(staffId, start, end) {
 const dayEntries = (k, stages) =>
   state.requests.flatMap((r) => r.days.filter((d) => d.date === k && stages.includes(d.stage)).map((d) => ({ r, d })));
 const PENDING = ["charge", "manager"];
-// Partial-day absences don't remove someone from the headcount; they're marked ½ instead.
-const approvedOff = (k) => new Set(dayEntries(k, ["approved"]).filter(({ r }) => !isPartial(r)).map(({ r }) => r.staffId));
+// Full-day absences remove someone from the day's headcount.
+const approvedOff = (k) => new Set(dayEntries(k, ["approved"]).filter(({ d }) => !d.part).map(({ r }) => r.staffId));
+const partialOff = (staffId, k) => dayEntries(k, ["approved"]).find(({ r, d }) => r.staffId === staffId && d.part);
+
+// Hours actually worked on a date after an approved partial absence.
+function hoursWorked(staffId, k, shiftId = shiftFor(staffId, k)) {
+  const info = shiftInfo(shiftId);
+  if (!info.id) return 0;
+  const p = k && partialOff(staffId, k);
+  return round1(info.hours - (p ? overlap(info.start, info.end, tm(p.d.part.t1), tm(p.d.part.t2)) / 60 : 0));
+}
+// What's left of a shift around a partial absence, e.g. "1200–1530".
+function remainingWindow(shiftId, part) {
+  const info = shiftInfo(shiftId), a = tm(part.t1), b = tm(part.t2), out = [];
+  if (!info.id) return "";
+  if (a > info.start) out.push(`${hhmm(info.start)}–${hhmm(Math.min(a, info.end))}`);
+  if (b < info.end) out.push(`${hhmm(Math.max(b, info.start))}–${hhmm(info.end)}`);
+  return out.join(" and ");
+}
+
+// Staff on shift at some point in [a, b) on a date, minus anyone off then.
+function presentDuring(k, a, b, excludeId = null) {
+  const off = approvedOff(k);
+  return state.staff.filter((s) => {
+    if (s.id === excludeId || off.has(s.id)) return false;
+    const info = shiftInfo(shiftFor(s.id, k));
+    if (!info.id || overlap(info.start, info.end, a, b) <= 0) return false;
+    const p = partialOff(s.id, k);
+    return !(p && overlap(tm(p.d.part.t1), tm(p.d.part.t2), a, b) > 0);
+  });
+}
 
 function requestStatus(r) {
   const st = r.days.map((d) => d.stage);
@@ -200,38 +264,70 @@ function dayInfo(dayKey, extraOffId = null) {
   const open = isOpen(dayKey);
   const min = Number(state.settings.minStaff) || 0;
   const short = open ? shortGroups(working) : [];
-  const atRisk = new Set(pending.filter(({ r }) => !isPartial(r) && working.some((w) => w.id === r.staffId)).map(({ r }) => r.staffId));
+  // departments short during someone's approved partial absence
+  const partialShort = !open ? [] : dayEntries(dayKey, ["approved"]).filter(({ d }) => d.part).map(({ r, d }) => {
+    const s = staffById(r.staffId);
+    if (!s) return null;
+    const g = groupOf(s);
+    const n = presentDuring(dayKey, tm(d.part.t1), tm(d.part.t2)).filter((w) => w.groupId === g.id).length;
+    return g.min && n < g.min ? { g, n, t1: d.part.t1, t2: d.part.t2 } : null;
+  }).filter(Boolean);
+  const atRisk = new Set(pending.filter(({ r, d }) => !d.part && working.some((w) => w.id === r.staffId)).map(({ r }) => r.staffId));
   const afterPending = working.filter((w) => !atRisk.has(w.id));
   return {
-    scheduled, working, missing, pending, short, open,
+    scheduled, working, missing, pending, short, partialShort, open,
     totalShort: open && working.length < min,
-    gap: open && (working.length < min || short.length > 0),
+    gap: open && (working.length < min || short.length > 0 || partialShort.length > 0),
     gapIfPendingApproved: open && atRisk.size > 0 && (afterPending.length < min || shortGroups(afterPending).length > 0),
   };
 }
 
-// Coverage on one requested date if that day were approved.
-function impact(r, k) {
-  const s = staffById(r.staffId), g = groupOf(s);
-  if (!shiftFor(s.id, k)) return { bad: false, html: '<span class="muted">Not scheduled</span>' };
-  if (isPartial(r)) return { bad: false, html: '<span class="muted">Partial day, still counted</span>' };
+// Coverage on one requested day ({date, part}) if it were approved.
+function impact(staffId, day) {
+  const s = staffById(staffId), g = groupOf(s), k = day.date;
+  const shift = shiftFor(s.id, k);
+  if (!shift) return { bad: false, html: '<span class="muted">Not scheduled</span>' };
+  if (day.part) {
+    const n = presentDuring(k, tm(day.part.t1), tm(day.part.t2), s.id).filter((w) => w.groupId === g.id).length;
+    const bad = isOpen(k) && g.min > 0 && n < g.min;
+    const left = remainingWindow(shift, day.part);
+    return { bad, html: `<span class="${bad ? "conflict" : "okc"}">${bad ? "⚠ " : "✓ "}${esc(g.name)}: ${n} on during ${day.part.t1}–${day.part.t2} (min ${g.min})</span>${left ? `<div class="muted">Still works ${left}</div>` : ""}` };
+  }
   const info = dayInfo(k, s.id);
   const have = info.working.filter((w) => w.groupId === g.id).length;
-  const bad = info.gap;
   const parts = [`${esc(g.name)}: ${have} left (min ${g.min})`];
   if (info.totalShort) parts.push(`unit ${info.working.length} (min ${state.settings.minStaff})`);
   for (const x of info.short) if (x.g.id !== g.id) parts.push(`${esc(x.g.name)} short`);
-  return { bad, html: `<span class="${bad ? "conflict" : "okc"}">${bad ? "⚠ " : "✓ "}${parts.join(" · ")}</span>` };
+  for (const x of info.partialShort) parts.push(`${esc(x.g.name)} short ${x.t1}–${x.t2}`);
+  return { bad: info.gap, html: `<span class="${info.gap ? "conflict" : "okc"}">${info.gap ? "⚠ " : "✓ "}${parts.join(" · ")}</span>` };
 }
 
-// PTO/vacation used: approved scheduled days (partial = half a day).
+// Check partial times against the person's shift that day. Returns an error string or "".
+function partialError(staffId, k, t1, t2) {
+  const a = tm(t1), b = tm(t2), label = fd(k);
+  if (a === null || b === null) return `${label}: partial times need 4-digit military times (e.g. 0835).`;
+  if (b <= a) return `${label}: end time must be later than start time.`;
+  const info = shiftInfo(shiftFor(staffId, k));
+  if (info.id) {
+    if (a < info.start || b > info.end) return `${label}: times must be within the ${info.label} shift (${info.time}).`;
+    if (a <= info.start && b >= info.end) return `${label}: that covers the whole ${info.label} shift, so choose Full.`;
+  }
+  return "";
+}
+
+// PTO/vacation used: approved scheduled days; partial days count by hours off.
 function daysUsed(staffId, year) {
   let n = 0;
   for (const r of state.requests) {
     if (r.staffId !== staffId || !["PTO", "Vacation"].includes(r.type)) continue;
-    for (const d of r.days) if (d.stage === "approved" && d.date.startsWith(String(year)) && shiftFor(staffId, d.date)) n += isPartial(r) ? 0.5 : 1;
+    for (const d of r.days) {
+      if (d.stage !== "approved" || !d.date.startsWith(String(year))) continue;
+      const info = shiftInfo(shiftFor(staffId, d.date));
+      if (!info.id) continue;
+      n += d.part ? overlap(info.start, info.end, tm(d.part.t1), tm(d.part.t2)) / 60 / info.hours : 1;
+    }
   }
-  return n;
+  return round1(n);
 }
 
 // ---------- rendering helpers ----------
@@ -245,6 +341,7 @@ const initials = (name) => {
 const avatar = (s) => `<span class="avatar" style="background:${groupOf(s).color}">${esc(initials(s.name))}</span>`;
 const statusChip = (st) => `<span class="schip st-${st.split(" ")[0]}">${st}</span>`;
 const canEdit = () => ui.role !== "employee";
+const timeInput = (attrs, value = "", ph = "") => `<input class="t4" maxlength="4" inputmode="numeric" placeholder="${ph}" value="${esc(value)}" ${attrs} />`;
 
 function render() {
   renderRole();
@@ -309,7 +406,8 @@ function renderCalendar() {
       const g = groupOf(s);
       const approved = day.stage === "approved";
       const style = approved ? `background:${g.color}` : `border-left-color:${g.color}`;
-      return `<span class="chip ${approved ? "approved" : "pending"}" style="${style}" title="${esc(s.name)} · ${esc(g.name)} · ${r.type} · ${STAGE_LABEL[day.stage]}">${esc(lastName(s.name))}${isPartial(r) ? " ½" : ""}</span>`;
+      const when = day.part ? ` ${day.part.t1}–${day.part.t2}` : "";
+      return `<span class="chip ${approved ? "approved" : "pending"}" style="${style}" title="${esc(s.name)} · ${esc(g.name)} · ${r.type}${when} · ${STAGE_LABEL[day.stage]}">${esc(lastName(s.name))}${day.part ? " ½" : ""}</span>`;
     }).join("");
     const more = entries.length > 3 ? `<span class="more">+${entries.length - 3} more</span>` : "";
     const count = info.scheduled.length ? `<span class="count" title="Working / scheduled">${info.working.length}/${info.scheduled.length}</span>` : "";
@@ -325,12 +423,13 @@ function renderDayPanel() {
     const m = list.filter((s) => s.groupId === g.id);
     return m.length ? `<li class="ghead" style="--g:${g.color}">${esc(g.name)} <span class="muted">(${m.length}${g.min && info.open ? ` / min ${g.min}` : ""})</span></li>${m.map(row).join("")}` : "";
   }).join("");
-  const partial = dayEntries(k, ["approved"]).filter(({ r }) => isPartial(r));
 
   const working = grouped(info.working, (s) => {
-    const p = partial.find(({ r }) => r.staffId === s.id);
+    const shift = shiftFor(s.id, k);
+    const p = partialOff(s.id, k);
+    const what = p ? `${shiftLabel(shift)} · off ${p.d.part.t1}–${p.d.part.t2}` : `${shiftLabel(shift)}${shiftInfo(shift).custom ? "" : ` ${shiftInfo(shift).time}`}`;
     const pend = info.pending.find(({ r }) => r.staffId === s.id);
-    return `<li><span class="who">${avatar(s)}${esc(s.name)}</span><span class="muted">${shiftLabel(shiftFor(s.id, k))}${p ? ` · ½ off ${p.r.t1}–${p.r.t2}` : ""}${pend ? ' <span class="status pending">req</span>' : ""}</span></li>`;
+    return `<li><span class="who">${avatar(s)}${esc(s.name)}</span><span class="muted">${what}${pend ? ' <span class="status pending">req</span>' : ""}</span></li>`;
   }) || '<li class="muted">Nobody scheduled</li>';
 
   const off = grouped(info.missing, (s) => {
@@ -341,11 +440,12 @@ function renderDayPanel() {
   const alerts = [];
   if (info.totalShort) alerts.push(`Only ${info.working.length} working; unit minimum is ${state.settings.minStaff}.`);
   for (const { g, have } of info.short) alerts.push(`${g.name}: ${have} of ${g.min} needed.`);
+  for (const x of info.partialShort) alerts.push(`${x.g.name}: only ${x.n} on from ${x.t1}–${x.t2} (partial absence; min ${x.g.min}).`);
   if (!info.gap && info.gapIfPendingApproved) alerts.push("Approving the pending requests would leave this day short.");
 
   const pendingList = info.pending.map(({ r, d }) => {
     const s = staffById(r.staffId);
-    return s ? `<li><span class="who">${avatar(s)}${esc(s.name)}</span><span class="muted">${r.type}${isPartial(r) ? " ½" : ""} · ${d.stage === "charge" ? "charge" : "manager"} review</span></li>` : "";
+    return s ? `<li><span class="who">${avatar(s)}${esc(s.name)}</span><span class="muted">${r.type}${d.part ? ` ½ ${d.part.t1}–${d.part.t2}` : ""} · ${d.stage === "charge" ? "charge" : "manager"} review</span></li>` : "";
   }).join("");
 
   $("#dayPanel").innerHTML = `
@@ -385,7 +485,7 @@ function setCell(staffId, c, shiftId) {
   }
 }
 
-// People actually working in column c (week view removes approved time off).
+// People actually working in column c (week view removes approved full-day time off).
 function workingInCol(c) {
   if (!isWeek()) return state.staff.filter((s) => templateShift(s.id, c));
   const k = colDay(c), off = approvedOff(k);
@@ -406,10 +506,12 @@ function renderSchedule() {
     ? `${fmt(ui.schedWeek)} – ${fmt(addDays(ui.schedWeek, 6), { month: "short", day: "numeric", year: "numeric" })}`
     : "Applies to every week";
   $("#toggleAll").textContent = ui.collapsed.size === state.groups.length ? "Expand all" : "Collapse all";
-  $("#shiftBtns").innerHTML = edit ? SHIFTS.map((s) =>
-    `<button class="small sb s-${s.id || "off"}" data-set="${s.id || "off"}" title="${s.time || ""} (key ${s.key.toUpperCase()})">${s.label}</button>`).join("") : '<span class="muted">View only</span>';
+  $("#shiftBtns").innerHTML = edit
+    ? SHIFTS.map((s) => `<button class="small sb s-${s.id || "off"}" data-set="${s.id || "off"}" title="${s.time || ""} (key ${s.key.toUpperCase()})">${s.label}</button>`).join("") +
+      '<button class="small sb s-custom" data-set="custom" title="Partial or custom times (key P)">Partial…</button>'
+    : '<span class="muted">View only</span>';
   $("#sheetHint").innerHTML = edit
-    ? `Click or drag to select · type ${SHIFTS.filter((s) => s.id).map((s) => `<b>${s.key.toUpperCase()}</b> ${s.label} (${s.time})`).join(", ")}, <b>X</b>/Delete Off · Enter or double-click cycles · Ctrl+C / Ctrl+V works with Excel. In <b>Week</b>, edits apply to that week only (corner marker) and approved time off shows striped (½ = partial). <b>Repeating pattern</b> edits apply every week. ✎ renames a department; "min" sets how many it needs per open day.`
+    ? `Click or drag to select · type ${SHIFTS.filter((s) => s.id).map((s) => `<b>${s.key.toUpperCase()}</b> ${s.label} (${s.time})`).join(", ")}, <b>P</b> for a partial shift (e.g. 0700-1100), <b>X</b>/Delete Off · Enter or double-click cycles · Ctrl+C / Ctrl+V works with Excel (times like 0700-1100 paste too). In <b>Week</b>, edits apply to that week only (corner marker); approved time off is striped and partial time off shows ½ with hours reduced. <b>Repeating pattern</b> edits apply every week. ✎ renames a department; "min" sets how many it needs per open day.`
     : "Employees can view the schedule. Switch to Charge nurse or Manager to edit it.";
 
   const q = ui.search.trim().toLowerCase();
@@ -454,33 +556,38 @@ function renderSchedule() {
         const shift = cellShift(s.id, c);
         const appr = cellEntries(s.id, c, ["approved"])[0];
         const pend = cellEntries(s.id, c, PENDING)[0];
-        const cls = ["c", `s-${shift || "off"}`];
+        const cls = ["c", `s-${shiftCls(shift)}`];
         if (!open) cls.push("closed");
         if (r >= r0 && r <= r1 && c >= c0 && c <= c1) cls.push("sel");
         if (r === ui.active.r && c === ui.active.c) cls.push("active");
         if (week && overrideFor(s.id, key) !== undefined) cls.push("ovr");
         if (key === today) cls.push("is-today");
         let text = shift ? shiftLabel(shift) : "";
-        if (appr && !isPartial(appr.r)) {
+        let title = "";
+        if (appr && !appr.d.part) {
           cls.push("vac");
           text = `${TYPE_ABBR[appr.r.type] || "OFF"}${shift ? ` · ${shiftLabel(shift)}` : ""}`;
         } else {
-          if (appr) { cls.push("part"); text = `½ ${text || TYPE_ABBR[appr.r.type]}`; }
-          if (shift) { shifts++; hours += shiftInfo(shift).hours; }
+          if (appr) {
+            cls.push("part");
+            text = `½ ${text || TYPE_ABBR[appr.r.type]}`;
+            title = `Off ${appr.d.part.t1}–${appr.d.part.t2}`;
+          }
+          if (shift) { shifts++; hours += week ? hoursWorked(s.id, key, shift) : shiftInfo(shift).hours; }
         }
         if (pend) cls.push("pend");
-        return `<td class="${cls.join(" ")}" data-staff="${s.id}" data-c="${c}">${text}</td>`;
+        return `<td class="${cls.join(" ")}" data-staff="${s.id}" data-c="${c}"${title ? ` title="${title}"` : ""}>${text}</td>`;
       }).join("");
       html += `<tr><th class="rn">${row++}</th>
         <th class="name"><span class="who">${avatar(s)}<span class="nm">${esc(s.name)}<small>${esc(s.role || "")}</small></span></span></th>
-        ${cells}<td class="num">${shifts}</td><td class="num">${hours}</td></tr>`;
+        ${cells}<td class="num">${shifts}</td><td class="num">${round1(hours)}</td></tr>`;
     }
   }
 
   const min = Number(state.settings.minStaff) || 0;
-  html += `</tbody><tfoot><tr><th class="rn">${row}</th><th class="name">Total working</th>${cols.map(({ c, open }) => {
+  html += `</tbody><tfoot><tr><th class="rn">${row}</th><th class="name">Total working</th>${cols.map(({ c, key, open }) => {
     const n = working[c].length;
-    const short = open && (n < min || shortGroups(working[c]).length > 0);
+    const short = week ? dayInfo(key).gap : open && (n < min || shortGroups(working[c]).length > 0);
     return `<td class="${short ? "short" : ""}" title="${open ? (short ? "Below minimum staffing" : "OK") : "Unit closed"}">${n}</td>`;
   }).join("")}<td colspan="2" class="muted">min ${min}/day</td></tr></tfoot>`;
 
@@ -503,12 +610,18 @@ function renderFormulaBar() {
   const shift = cellShift(s.id, c);
   const info = shiftInfo(shift);
   const when = isWeek() ? fd(colDay(c)) : `every ${DAY_NAMES[c]}`;
-  const parts = [`${s.name} (${groupOf(s).name}) · ${when} · ${info.label}${info.time ? ` ${info.time}` : ""}`];
+  const name = info.custom ? `Partial shift ${info.time} (${info.hours}h)` : `${info.label}${info.time ? ` ${info.time}` : ""}`;
+  const parts = [`${s.name} (${groupOf(s).name}) · ${when} · ${name}`];
   if (isWeek() && overrideFor(s.id, colDay(c)) !== undefined) parts.push(`this week only (usually ${shiftLabel(templateShift(s.id, c))})`);
   const appr = cellEntries(s.id, c, ["approved"])[0];
-  if (appr) parts.push(isPartial(appr.r) ? `approved ${appr.r.type} ${appr.r.t1}–${appr.r.t2}` : `approved ${appr.r.type}, needs cover`);
+  if (appr) {
+    if (appr.d.part) {
+      const left = remainingWindow(shift, appr.d.part);
+      parts.push(`approved ${appr.r.type} off ${appr.d.part.t1}–${appr.d.part.t2}${left ? `, working ${left} (${hoursWorked(s.id, colDay(c), shift)}h)` : ""}`);
+    } else parts.push(`approved ${appr.r.type}, needs cover`);
+  }
   const pend = cellEntries(s.id, c, PENDING)[0];
-  if (pend) parts.push(`${STAGE_LABEL[pend.d.stage].toLowerCase()} (${pend.r.type})`);
+  if (pend) parts.push(`${STAGE_LABEL[pend.d.stage].toLowerCase()} (${pend.r.type}${pend.d.part ? ` ${pend.d.part.t1}–${pend.d.part.t2}` : ""})`);
   $("#fx").textContent = parts.join(" · ");
 }
 
@@ -520,6 +633,15 @@ function applyToSelection(shiftId) {
   if (!canEdit()) return;
   forEachSelected((id, c) => setCell(id, c, shiftId));
   commit();
+}
+function askPartialShift() {
+  if (!canEdit() || !ui.rowIds.length) return;
+  const cur = cellShift(ui.rowIds[ui.active.r], ui.active.c);
+  const v = prompt("Partial shift times (24-hour), e.g. 0700-1100", shiftInfo(cur).custom ? cur : "0700-1100");
+  if (v === null) return;
+  const id = parseShift(v);
+  if (!id || !CUSTOM_RE.test(id)) return alert("Use two 4-digit times like 0700-1100, with the end after the start.");
+  applyToSelection(id);
 }
 function cycleSelection() {
   const cur = cellShift(ui.rowIds[ui.active.r], ui.active.c);
@@ -535,12 +657,6 @@ function moveSel(dr, dc, extend) {
   renderSchedule();
   $("#schedTable td.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
-function parseShift(text) {
-  const t = text.replace(/^½\s*/, "").replace(/^[A-Z]+\s*·\s*/, "").trim().toLowerCase();
-  if (!t || t === "off" || t === "-" || t === "x") return null;
-  const s = SHIFTS.find((x) => x.label.toLowerCase() === t || x.key === t);
-  return s ? s.id : undefined; // undefined = unrecognised, leave cell alone
-}
 
 function exportCsv() {
   const week = isWeek();
@@ -552,12 +668,12 @@ function exportCsv() {
       let shifts = 0, hours = 0;
       const days = DAY_NAMES.map((_, c) => {
         const shift = cellShift(s.id, c), appr = cellEntries(s.id, c, ["approved"])[0];
-        if (appr && !isPartial(appr.r)) return `${appr.r.type}${shift ? ` (${shiftLabel(shift)})` : ""}`;
-        if (shift) { shifts++; hours += shiftInfo(shift).hours; }
+        if (appr && !appr.d.part) return `${appr.r.type}${shift ? ` (${shiftLabel(shift)})` : ""}`;
+        if (shift) { shifts++; hours += week ? hoursWorked(s.id, colDay(c), shift) : shiftInfo(shift).hours; }
         const label = shift ? shiftLabel(shift) : "";
-        return appr ? `${label} (${appr.r.type} ${appr.r.t1}-${appr.r.t2})` : label;
+        return appr ? `${label} (${appr.r.type} off ${appr.d.part.t1}-${appr.d.part.t2})` : label;
       });
-      lines.push([g.name, s.name, s.role || "", ...days, shifts, hours].map(q).join(","));
+      lines.push([g.name, s.name, s.role || "", ...days, shifts, round1(hours)].map(q).join(","));
     }
   }
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv" });
@@ -573,13 +689,7 @@ function renderRequests() {
   $("#reviewView").hidden = emp;
   $("#notice").hidden = !ui.notice;
   $("#notice").textContent = ui.notice;
-  if (emp) { renderMine(); updateImpact(); } else { renderQueue(); renderAll(); }
-}
-
-function dayTable(r, extraCol) {
-  return `<div class="scroll"><table class="rtable"><tr><th>Date</th><th>Your schedule</th><th>Status</th>${extraCol ? "<th>Charge review</th>" : ""}</tr>
-    ${r.days.map((d) => `<tr><td>${fd(d.date)}</td><td>${shiftLabel(shiftFor(r.staffId, d.date))}</td><td>${statusChip(STAGE_LABEL[d.stage])}${d.exc ? ' <span class="muted">partial exception</span>' : ""}</td>
-      ${extraCol ? `<td class="muted">${esc(d.avail || "—")}${d.cc ? ` – ${esc(d.cc)}` : ""}</td>` : ""}</tr>`).join("")}</table></div>`;
+  if (emp) { renderMine(); renderDraft(); } else { renderQueue(); renderAll(); }
 }
 
 function renderMine() {
@@ -595,26 +705,75 @@ function renderMine() {
         ${canWithdraw ? `<button class="small danger" data-withdraw="${r.id}">Withdraw</button>` : ""}</div>
       ${r.note ? `<div class="muted">“${esc(r.note)}”</div>` : ""}
       ${r.summary ? `<div class="muted">Charge review: ${r.summary}</div>` : ""}
-      ${dayTable(r, true)}
+      <div class="scroll"><table class="rtable"><tr><th>Date</th><th>Your schedule</th><th>Requested</th><th>Status</th><th>Charge review</th></tr>
+      ${r.days.map((d) => {
+        const shift = shiftFor(r.staffId, d.date);
+        const left = d.part && shift ? remainingWindow(shift, d.part) : "";
+        return `<tr><td>${fd(d.date)}</td><td>${shiftLabel(shift)}${shift && !shiftInfo(shift).custom ? ` <span class="muted">${shiftInfo(shift).time}</span>` : ""}</td>
+          <td>${dayTxt(d)}${left ? `<div class="muted">working ${left}</div>` : ""}${d.changed ? '<div class="muted">changed to partial by manager</div>' : ""}</td>
+          <td>${statusChip(STAGE_LABEL[d.stage])}${d.exc ? ' <span class="muted">exception approved</span>' : ""}</td>
+          <td class="muted">${esc(d.avail || "—")}${d.cc ? ` – ${esc(d.cc)}` : ""}</td></tr>`;
+      }).join("")}</table></div>
     </div>`;
   }).join("") || '<p class="muted">No requests yet.</p>';
+}
+
+// Request form: one row per working day, each Full or Partial with its own times.
+function renderDraft() {
+  const s = staffById(ui.me);
+  const start = $("#reqStart").value, end = $("#reqEnd").value;
+  $("#partialWrap").hidden = $("#reqShift").value !== "Partial Shift";
+  const box = $("#dayRows");
+  if (!s || !start || !end || end < start) { box.hidden = true; $("#reqImpact").hidden = true; return; }
+  const days = requestDays(s.id, start, end);
+  const topPartial = $("#reqShift").value === "Partial Shift";
+  for (const k of days) ui.draft[k] ||= { partial: topPartial, t1: $("#reqT1").value.trim(), t2: $("#reqT2").value.trim() };
+  box.hidden = !days.length;
+  box.innerHTML = `<div class="scroll"><table class="rtable draft"><tr><th>Day</th><th>Your shift</th><th>Time off</th><th>From</th><th>To</th><th>Coverage</th></tr>
+    ${days.map((k) => {
+      const d = ui.draft[k], shift = shiftFor(s.id, k), info = shiftInfo(shift);
+      return `<tr data-date="${k}"><td>${fd(k)}</td><td>${shiftLabel(shift)}${info.time && !info.custom ? ` <span class="muted">${info.time}</span>` : ""}</td>
+        <td><select data-f="partial" aria-label="Full or partial"><option value="0">Full</option><option value="1" ${d.partial ? "selected" : ""}>Partial</option></select></td>
+        <td>${timeInput(`data-f="t1" aria-label="Off from" ${d.partial ? "" : "disabled"}`, d.t1, info.start != null ? hhmm(info.start) : "0700")}</td>
+        <td>${timeInput(`data-f="t2" aria-label="Off until" ${d.partial ? "" : "disabled"}`, d.t2, info.end != null ? hhmm(info.end) : "1530")}</td>
+        <td class="imp"></td></tr>`;
+    }).join("")}</table></div>`;
+  updateImpact();
+}
+
+function draftDays() {
+  const s = staffById(ui.me), start = $("#reqStart").value, end = $("#reqEnd").value;
+  if (!s || !start || !end || end < start) return [];
+  return requestDays(s.id, start, end).map((k) => {
+    const d = ui.draft[k] || {};
+    return { date: k, part: d.partial ? { t1: (d.t1 || "").trim(), t2: (d.t2 || "").trim() } : null };
+  });
 }
 
 function updateImpact() {
   const box = $("#reqImpact");
   const s = staffById(ui.me);
-  const start = $("#reqStart").value, end = $("#reqEnd").value;
-  $("#partialWrap").hidden = $("#reqShift").value !== "Partial Shift";
-  if (!s || !start || !end || end < start) { box.hidden = true; return; }
-  const draft = { staffId: s.id, shift: $("#reqShift").value };
-  const days = requestDays(s.id, start, end);
-  const scheduled = days.filter((k) => shiftFor(s.id, k));
-  const bad = days.filter((k) => impact(draft, k).bad);
-  const used = daysUsed(s.id, start.slice(0, 4));
+  const days = draftDays();
+  if (!s || !days.length) { box.hidden = true; return; }
+  const bad = [];
+  let offHours = 0;
+  for (const day of days) {
+    const cell = document.querySelector(`#dayRows tr[data-date="${day.date}"] .imp`);
+    const info = shiftInfo(shiftFor(s.id, day.date));
+    if (day.part && partialError(s.id, day.date, day.part.t1, day.part.t2)) {
+      if (cell) cell.innerHTML = '<span class="muted">Enter valid times</span>';
+      continue;
+    }
+    const imp = impact(s.id, day);
+    if (cell) cell.innerHTML = imp.html;
+    if (imp.bad) bad.push(day.date);
+    if (info.id) offHours += day.part ? overlap(info.start, info.end, tm(day.part.t1), tm(day.part.t2)) / 60 : info.hours;
+  }
+  const used = daysUsed(s.id, days[0].date.slice(0, 4));
   box.hidden = false;
   box.className = "wide impact" + (bad.length ? " bad" : "");
-  box.innerHTML = `You're scheduled on <b>${scheduled.length}</b> of the ${days.length} working day(s) in this range.
-    PTO/vacation used this year: ${used}/${s.allowance}.
+  box.innerHTML = `This request takes <b>${round1(offHours)}</b> scheduled hour(s) off across ${days.length} working day(s).
+    PTO/vacation used this year: ${used}/${s.allowance} days.
     ${bad.length ? `<br>⚠ ${esc(groupOf(s).name)} or the unit would be short on ${bad.map((k) => fmt(k)).join(", ")}. You can still submit; the charge nurse will review.` : "<br>No coverage problems found."}`;
 }
 
@@ -626,24 +785,31 @@ function renderQueue() {
     const s = staffById(r.staffId);
     if (!s) return "";
     const rows = r.days.filter((d) => d.stage === stage).map((d) => {
-      const k = d.date;
-      const imp = impact(r, k);
-      const decision = stage === "charge"
-        ? ["Available", "Unavailable", "Override Recommended"].map((v) => `<label><input type="radio" name="dec_${r.id}_${k}" value="${v}"> ${v}</label>`).join("")
-        : `<div class="muted">Charge: ${esc(d.avail || "—")}${d.cc ? ` – ${esc(d.cc)}` : ""}</div>
-           <label><input type="radio" name="dec_${r.id}_${k}" value="Approve"> Approve</label>
-           <label><input type="radio" name="dec_${r.id}_${k}" value="Deny"> Deny</label>
-           ${isPartial(r) ? `<label><input type="checkbox" data-exc="${k}"> Partial-day exception approved</label>` : ""}`;
-      return `<tr class="${imp.bad ? "badrow" : ""}"><td>${fd(k)}</td><td>${shiftTxt(r)}<div class="muted">Scheduled: ${shiftLabel(shiftFor(r.staffId, k))}</div></td>
+      const k = d.date, name = `dec_${r.id}_${k}`;
+      const imp = impact(r.staffId, d);
+      const shift = shiftFor(r.staffId, k);
+      const info = shiftInfo(shift);
+      let decision;
+      if (stage === "charge") {
+        decision = ["Available", "Unavailable", "Override Recommended"].map((v) => `<label><input type="radio" name="${name}" value="${v}"> ${v}</label>`).join("");
+      } else {
+        decision = `<div class="muted">Charge: ${esc(d.avail || "—")}${d.cc ? ` – ${esc(d.cc)}` : ""}</div>
+          <label><input type="radio" name="${name}" value="Approve"> Approve${d.part ? "" : " full day"}</label>
+          ${d.part || !info.id ? "" : `<label><input type="radio" name="${name}" value="Partial"> Approve partial only:</label>
+            <span class="times">${timeInput(`data-pt1="${k}" aria-label="Off from"`, "", hhmm(info.start))} to ${timeInput(`data-pt2="${k}" aria-label="Off until"`, "", "1200")}</span>`}
+          <label><input type="radio" name="${name}" value="Deny"> Deny</label>
+          ${d.part ? `<label><input type="checkbox" data-exc="${k}"> Partial-day exception approved</label>` : ""}`;
+      }
+      return `<tr class="${imp.bad ? "badrow" : ""}"><td>${fd(k)}</td><td>${dayTxt(d)}<div class="muted">Scheduled: ${shiftLabel(shift)}${info.time ? ` ${info.time}` : ""}</div></td>
         <td>${imp.html}</td><td class="rad">${decision}</td>
         <td><input data-note="${k}" placeholder="${stage === "charge" ? "Required" : "Internal note"}" /></td></tr>`;
     }).join("");
     const range = r.start === r.end ? fd(r.start) : `${fd(r.start)} – ${fd(r.end)}`;
     return `<div class="card review" data-req="${r.id}">
-      <div class="req-head"><span class="who">${avatar(s)}<b>${esc(s.name)}</b></span>&nbsp;· ${esc(groupOf(s).name)} · ${r.type} · ${range}</div>
+      <div class="req-head"><span class="who">${avatar(s)}<b>${esc(s.name)}</b></span>&nbsp;· ${esc(groupOf(s).name)} · ${r.type} · ${range} · ${shiftTxt(r)}</div>
       ${r.note ? `<div class="muted">“${esc(r.note)}”</div>` : ""}
       ${r.summary && stage === "manager" ? `<div class="muted">Charge summary: ${r.summary}</div>` : ""}
-      <div class="scroll"><table class="rtable"><tr><th>Date</th><th>Shift</th><th>Coverage if approved</th><th>Decision</th><th>Comments</th></tr>${rows}</table></div>
+      <div class="scroll"><table class="rtable"><tr><th>Date</th><th>Requested</th><th>Coverage if approved</th><th>Decision</th><th>Comments</th></tr>${rows}</table></div>
       <div class="err" hidden></div>
       <button class="submit-review" data-req="${r.id}">Submit decisions</button>
     </div>`;
@@ -660,10 +826,16 @@ function submitReview(id) {
     const c = card.querySelector(`input[name="dec_${r.id}_${k}"]:checked`)?.value;
     const m = card.querySelector(`[data-note="${k}"]`).value.trim();
     const ex = card.querySelector(`[data-exc="${k}"]`)?.checked;
+    let part = null;
     if (!c) errs.push(`${label}: make a selection.`);
     if (stage === "charge" && !m) errs.push(`${label}: comments are required.`);
     if (stage === "manager" && c === "Deny" && ex) errs.push(`${label}: can't deny a date and also approve an exception.`);
-    changes.push({ d, c, m, ex });
+    if (c === "Partial") {
+      part = { t1: card.querySelector(`[data-pt1="${k}"]`).value.trim(), t2: card.querySelector(`[data-pt2="${k}"]`).value.trim() };
+      const e = partialError(r.staffId, k, part.t1, part.t2);
+      if (e) errs.push(e);
+    }
+    changes.push({ d, c, m, ex, part });
   }
   if (errs.length) {
     const box = card.querySelector(".err");
@@ -671,14 +843,17 @@ function submitReview(id) {
     box.innerHTML = errs.map((e) => `<div>${esc(e)}</div>`).join("");
     return;
   }
-  for (const { d, c, m, ex } of changes) {
+  for (const { d, c, m, ex, part } of changes) {
     if (stage === "charge") Object.assign(d, { avail: c, cc: m, stage: "manager" });
-    else Object.assign(d, { mc: m, exc: !!ex, stage: c === "Approve" ? "approved" : "denied" });
+    else {
+      Object.assign(d, { mc: m, exc: !!ex, stage: c === "Deny" ? "denied" : "approved" });
+      if (part) Object.assign(d, { part, changed: true });
+    }
   }
   if (stage === "charge") r.summary = summarize(r);
   ui.notice = stage === "charge"
     ? `Sent to the manager queue (${r.summary}).`
-    : `Decisions recorded: ${requestStatus(r)}. Approved dates now show on the calendar and schedule.`;
+    : `Decisions recorded: ${requestStatus(r)}. Approved days are now on the vacation calendar and schedule.`;
   commit();
 }
 
@@ -735,7 +910,7 @@ function showView(view) {
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === `view-${view}`));
 }
 document.querySelectorAll("#roleSeg [data-role]").forEach((b) => (b.onclick = () => { ui.role = b.dataset.role; ui.notice = ""; render(); }));
-$("#meSelect").onchange = (e) => { ui.me = e.target.value; ui.notice = ""; render(); };
+$("#meSelect").onchange = (e) => { ui.me = e.target.value; ui.notice = ""; ui.draft = {}; render(); };
 
 $("#prevMonth").onclick = () => { ui.month.setMonth(ui.month.getMonth() - 1); renderCalendar(); };
 $("#nextMonth").onclick = () => { ui.month.setMonth(ui.month.getMonth() + 1); renderCalendar(); };
@@ -774,6 +949,12 @@ document.body.addEventListener("click", (e) => {
     ui.notice = "Request withdrawn."; commit();
   }
 });
+// Manager: typing partial times selects "Approve partial only" for that day
+$("#queue").addEventListener("input", (e) => {
+  if (!e.target.dataset.pt1 && !e.target.dataset.pt2) return;
+  const radio = e.target.closest("tr").querySelector('input[type=radio][value="Partial"]');
+  if (radio) radio.checked = true;
+});
 
 // Spreadsheet toolbar
 document.querySelectorAll(".seg [data-mode]").forEach((b) => (b.onclick = () => { ui.schedMode = b.dataset.mode; renderSchedule(); }));
@@ -793,7 +974,10 @@ $("#resetWeek").onclick = () => {
 $("#exportCsv").onclick = exportCsv;
 $("#shiftBtns").addEventListener("click", (e) => {
   const b = e.target.closest("[data-set]");
-  if (b) { applyToSelection(b.dataset.set === "off" ? null : b.dataset.set); $("#sheet").focus({ preventScroll: true }); }
+  if (!b) return;
+  if (b.dataset.set === "custom") askPartialShift();
+  else applyToSelection(b.dataset.set === "off" ? null : b.dataset.set);
+  $("#sheet").focus({ preventScroll: true });
 });
 
 // Spreadsheet grid: selection, editing, copy/paste
@@ -843,6 +1027,7 @@ sheet.addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); return cycleSelection(); }
   if (e.key === "Escape") { ui.anchor = { ...ui.active }; return renderSchedule(); }
   if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); return applyToSelection(null); }
+  if (e.key.toLowerCase() === "p") { e.preventDefault(); return askPartialShift(); }
   const s = SHIFTS.find((x) => x.key === e.key.toLowerCase());
   if (!s) return;
   e.preventDefault();
@@ -876,40 +1061,57 @@ document.addEventListener("paste", (e) => {
 
 // Employee request form
 $("#reqType").innerHTML = LEAVE_TYPES.map((t) => `<option>${t}</option>`).join("");
-["#reqStart", "#reqEnd", "#reqShift"].forEach((s) => $(s).addEventListener("change", updateImpact));
 $("#reqStart").addEventListener("change", () => {
   if (!$("#reqEnd").value || $("#reqEnd").value < $("#reqStart").value) $("#reqEnd").value = $("#reqStart").value;
-  updateImpact();
+  renderDraft();
 });
+$("#reqEnd").addEventListener("change", renderDraft);
+// "all days" controls overwrite every day row
+function applyTopToDraft() {
+  const partial = $("#reqShift").value === "Partial Shift";
+  for (const d of Object.values(ui.draft)) Object.assign(d, { partial, t1: $("#reqT1").value.trim(), t2: $("#reqT2").value.trim() });
+  renderDraft();
+}
+$("#reqShift").addEventListener("change", applyTopToDraft);
+["#reqT1", "#reqT2"].forEach((s) => $(s).addEventListener("input", applyTopToDraft));
+const onDayRow = (e) => {
+  const tr = e.target.closest("tr[data-date]");
+  const f = e.target.dataset.f;
+  if (!tr || !f) return;
+  const d = (ui.draft[tr.dataset.date] ||= { partial: false, t1: "", t2: "" });
+  if (f === "partial") {
+    d.partial = e.target.value === "1";
+    tr.querySelectorAll(".t4").forEach((i) => (i.disabled = !d.partial));
+  } else d[f] = e.target.value.trim();
+  updateImpact();
+};
+$("#dayRows").addEventListener("input", onDayRow);
+$("#dayRows").addEventListener("change", onDayRow);
+$("#reqForm").addEventListener("input", () => ($("#reqErrors").hidden = true));
 $("#reqFilter").onchange = renderAll;
 $("#reqForm").onsubmit = (e) => {
   e.preventDefault();
-  const start = $("#reqStart").value, end = $("#reqEnd").value, shift = $("#reqShift").value;
-  const t1 = $("#reqT1").value.trim(), t2 = $("#reqT2").value.trim();
+  const start = $("#reqStart").value, end = $("#reqEnd").value;
   const errs = [];
+  const days = draftDays();
   if (!start || !end) errs.push("Start and end dates are required.");
   else {
     if (end < start) errs.push("End date must be on or after the start date.");
     if (start < todayKey()) errs.push("Dates in the past can't be requested.");
-    if (end >= start && !requestDays(ui.me, start, end).length) errs.push("No working days in that range.");
+    if (end >= start && !days.length) errs.push("No working days in that range.");
     const clash = state.requests.find((r) => r.staffId === ui.me && r.days.some((d) => d.stage !== "denied" && d.date >= start && d.date <= end));
     if (clash) errs.push(`You already have a ${clash.type} request covering some of these dates.`);
   }
-  if (shift === "Partial Shift") {
-    const x = tm(t1), y = tm(t2);
-    if (x === null || y === null) errs.push("Partial shifts need 4-digit military times (e.g. 0835).");
-    else if (y <= x) errs.push("End time must be later than start time.");
-  }
+  for (const d of days) if (d.part) { const x = partialError(ui.me, d.date, d.part.t1, d.part.t2); if (x) errs.push(x); }
   const box = $("#reqErrors");
   box.hidden = !errs.length;
   box.innerHTML = errs.map((x) => `<div>${esc(x)}</div>`).join("");
   if (errs.length) return;
-  const partial = shift === "Partial Shift";
-  state.requests.push(makeRequest({
-    staffId: ui.me, type: $("#reqType").value, start, end, shift,
-    t1: partial ? t1 : "", t2: partial ? t2 : "", note: $("#reqNote").value.trim(),
-  }));
+  const parts = Object.fromEntries(days.filter((d) => d.part).map((d) => [d.date, d.part]));
+  state.requests.push(makeRequest({ staffId: ui.me, type: $("#reqType").value, start, end, parts, note: $("#reqNote").value.trim() }));
   ["#reqNote", "#reqT1", "#reqT2", "#reqStart", "#reqEnd"].forEach((s) => ($(s).value = ""));
+  $("#reqShift").value = "Full Shift";
+  ui.draft = {};
   ui.notice = "Submitted. It's now waiting for charge nurse review.";
   commit();
 };

@@ -19,6 +19,7 @@
   --mid-bg: #d3f9d8;
   --late-bg: #d0ebff;
   --ten-bg: #e5dbff;
+  --custom-bg: #ffe8cc;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -39,6 +40,7 @@
     --mid-bg: #17351f;
     --late-bg: #14304a;
     --ten-bg: #2b2346;
+    --custom-bg: #3d2a14;
   }
 }
 
@@ -210,6 +212,8 @@ label.inline input[type=number] { width: 4.5em; }
 .sb.s-mid, td.c.s-mid { background: var(--mid-bg); }
 .sb.s-late, td.c.s-late { background: var(--late-bg); }
 .sb.s-ten, td.c.s-ten { background: var(--ten-bg); }
+.sb.s-custom, td.c.s-custom { background: var(--custom-bg); }
+td.c.s-custom { font-size: .75rem; }
 
 .sheet-wrap {
   overflow: auto; max-height: calc(100vh - 290px); min-height: 300px;
@@ -329,3 +333,9 @@ h2.left { text-align: left; margin: 0 0 8px; }
 .times input { width: 5.5em; }
 label[hidden] { display: none !important; }
 #empView[hidden], #reviewView[hidden], .tab[hidden] { display: none; }
+
+/* partial shifts */
+.rtable input.t4, input.t4 { width: 5.2em; min-width: 0; font-variant-numeric: tabular-nums; }
+input.t4:disabled { opacity: .4; }
+.rtable.draft td { vertical-align: middle; }
+.rtable .imp { min-width: 200px; font-size: .85rem; }

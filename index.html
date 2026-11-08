@@ -92,13 +92,14 @@
           <label>Leave type <select id="reqType"></select></label>
           <label>Start <input id="reqStart" type="date" /></label>
           <label>End <input id="reqEnd" type="date" /></label>
-          <label>Shift
+          <label>Shift (all days)
             <select id="reqShift"><option>Full Shift</option><option>Partial Shift</option></select>
           </label>
-          <label id="partialWrap" hidden>Partial times (24-hour)
+          <label id="partialWrap" hidden>Time off, all days (24-hour)
             <span class="times"><input id="reqT1" maxlength="4" inputmode="numeric" placeholder="0835" /> to
             <input id="reqT2" maxlength="4" inputmode="numeric" placeholder="1200" /></span>
           </label>
+          <div id="dayRows" class="wide" hidden></div>
           <label class="wide">Note <input id="reqNote" type="text" placeholder="Optional" /></label>
           <div id="reqErrors" class="wide err" hidden></div>
           <div id="reqImpact" class="wide impact" hidden></div>
