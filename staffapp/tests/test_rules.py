@@ -43,7 +43,7 @@ def test_third_grace_late_copies_three_with_0_0_1(db, people):
     assert all(e.late_event_id for e in events)
     # 4th late that month: recorded, not copied
     msg = late(db, emp, date(2026, 3, 20))
-    assert "recorded only" in msg
+    assert "no extra occurrence" in msg
     assert len(attendance.events_for(db, emp.id)) == 3
     assert attendance.occurrence_total(db, emp.id) == 1
 

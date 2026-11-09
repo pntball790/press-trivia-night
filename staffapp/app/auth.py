@@ -22,6 +22,13 @@ from .models import Employee
 
 ROLES = ("staff", "manager", "hr")
 
+# One-click "View as" buttons for demos: (role, employee name, short description).
+DEMO_PERSONAS = [
+    ("staff", "Farah Haddad", "Check your attendance and request time off"),
+    ("manager", "Dana Whitfield", "Approve requests and handle your GI team"),
+    ("hr", "Pat Morgan", "See everyone across the department"),
+]
+
 
 class LoginRequired(Exception):
     """Raised when no one is logged in; main.py redirects to /login."""
@@ -31,6 +38,7 @@ class LoginRequired(Exception):
 class CurrentUser:
     employee: Employee
     role: str
+    pending_count: int = 0  # approvals waiting for this user (shown as a badge in the menu)
 
     @property
     def id(self) -> int:
@@ -57,7 +65,22 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> CurrentUser
     role = request.cookies.get("role")
     if emp is None or role not in ROLES:
         raise LoginRequired()
-    return CurrentUser(emp, role)
+    user = CurrentUser(emp, role)
+    if not user.is_staff:
+        from .approvals import pending_for
+
+        user.pending_count = len(pending_for(db, user.id, user.is_hr))
+    return user
+
+
+def demo_personas(db: Session) -> list[dict]:
+    """DEMO_PERSONAS with database ids, skipping anyone not in the database."""
+    out = []
+    for role, name, blurb in DEMO_PERSONAS:
+        emp = db.scalar(select(Employee).where(Employee.name == name))
+        if emp:
+            out.append({"role": role, "id": emp.id, "name": emp.name, "title": emp.title, "blurb": blurb})
+    return out
 
 
 def require_role(user: CurrentUser, *roles: str) -> None:

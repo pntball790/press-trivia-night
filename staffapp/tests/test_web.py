@@ -37,6 +37,20 @@ def test_staff_sees_only_self(ids):
     assert "Disciplinary" not in c.get("/").text
 
 
+def test_home_pages_by_role(ids):
+    staff_home = login(ids, "Farah").get("/").text
+    assert "Request time off" in staff_home and "Approvals" not in staff_home
+    dana_home = login(ids, "Dana").get("/").text
+    assert "reached a new disciplinary step" in dana_home and "time-off request" in dana_home
+    assert login(ids, "Dana").get("/team").status_code == 200
+    assert login(ids, "Farah").get("/team").status_code == 403
+
+
+def test_login_page_has_quick_switch(ids):
+    page = TestClient(app).get("/login").text
+    assert page.count('class="persona"') == 3
+
+
 def test_manager_sees_team_only(ids):
     c = login(ids, "Dana")
     assert c.get(f"/attendance/{ids['Chloe']}").status_code == 200  # GI
@@ -48,10 +62,10 @@ def test_full_flow(ids):
     # Farah has 2 grace lates this month; the 3rd adds an occurrence.
     r = dana.post(f"/attendance/{ids['Farah']}/log",
                   data={"event_date": "2026-11-06", "event_type": "Late", "minutes_late": "4", "occurrence": "0"})
-    assert "copied to attendance" in r.text
+    assert "1 occurrence was counted" in r.text
 
     r = dana.post("/disciplinary/run")
-    assert "Generated 3 document(s)" in r.text  # Chloe, David, and Farah (now 4)
+    assert "Created 3 document(s)" in r.text  # Chloe, David, and Farah (now 4)
     page = dana.get("/approvals").text
     assert "Disciplinary" in page and "Chloe Nguyen" in page
 
@@ -71,6 +85,9 @@ def test_full_flow(ids):
     # Approve everything Dana has pending.
     for approval_id in re.findall(r'action="/approvals/(\d+)"', dana.get("/approvals").text):
         dana.post(f"/approvals/{approval_id}", data={"decision": "approve"})
-    assert "Nothing pending" in dana.get("/approvals").text
-    assert "issued" in dana.get("/disciplinary").text
-    assert login(ids, "Pat").get("/calendar").status_code == 200
+    assert "All caught up" in dana.get("/approvals").text
+    assert "Issued" in dana.get("/disciplinary").text
+    assert "All caught up" in dana.get("/").text
+    pat = login(ids, "Pat")
+    assert pat.get("/calendar").status_code == 200  # redirects to the Time off page
+    assert "Calendar" in pat.get("/vacation").text

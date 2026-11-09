@@ -131,6 +131,8 @@ def main() -> None:
     req("Chloe Nguyen", 7, 2, "Moving day")                   # pending, overlaps Aisha & Ben
     req("Isla Brooks", 35, 5, "Vacation")                     # pending
     req("Emma Rossi", 15, 1, "", "deny")
+    req("Farah Haddad", 18, 2, "Dentist + rest", "approve")  # staff demo user has something to see
+    req("Farah Haddad", 45, 3, "Thanksgiving trip")          # pending
     req("Dana Whitfield", 40, 4, "Conference")                # manager's own request -> goes to HR
 
     db.commit()

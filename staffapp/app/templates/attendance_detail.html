@@ -1,67 +1,99 @@
 {% extends "base.html" %}
-{% block title %}{{ emp.name }} · Attendance{% endblock %}
+{% from "_macros.html" import late_dots, step, status %}
+{% block title %}{{ emp.name }}{% endblock %}
 {% block content %}
-<h1>{{ emp.name }}</h1>
+{% if not user.is_staff and emp.id != user.id %}<p class="small"><a href="/team">← Team</a></p>{% endif %}
+<h1>{{ 'My attendance' if emp.id == user.id else emp.name }}</h1>
 <p class="muted">{{ emp.title }} · {{ emp.team }}{% if emp.manager %} · Manager: {{ emp.manager.name }}{% endif %}</p>
-<div class="tiles">
-  <div class="tile"><span class="num">{{ total }}</span>total occurrences</div>
-  <div class="tile"><span class="num">{{ month_lates }}/3</span>lates ≤{{ grace }} min this month</div>
+
+<div class="summary">
+  <div class="stat"><span class="num">{{ total }}</span><span>occurrences</span></div>
+  <div class="stat">{{ late_dots(month_lates) }}<span>small lates this month</span></div>
+  {% if can_log %}<div class="stat stat-wide">{{ step(total) }}<span>disciplinary step</span></div>{% endif %}
 </div>
 
 {% if can_log %}
-<details class="card" open>
-  <summary><strong>Log an attendance event</strong></summary>
-  <form method="post" action="/attendance/{{ emp.id }}/log" class="grid-form">
-    <label>Date <input type="date" name="event_date" value="{{ today }}" required></label>
-    <label>Type
-      <select name="event_type">{% for t in event_types %}<option>{{ t }}</option>{% endfor %}</select>
+<details class="card log" id="log" {% if open_log %}open{% endif %}>
+  <summary class="button">+ Log attendance</summary>
+  <form method="post" action="/attendance/{{ emp.id }}/log" class="grid-form" id="log-form">
+    <label>Date <input type="date" name="event_date" value="{{ today }}" max="{{ today }}" required></label>
+    <label>What happened
+      <select name="event_type" id="f-type">{% for t in event_types %}<option>{{ t }}</option>{% endfor %}</select>
     </label>
-    <label>Minutes late <input type="number" name="minutes_late" min="0" max="999"></label>
-    <label>Occurrence
-      <select name="occurrence">{% for v, l in occ_labels.items() %}<option value="{{ v }}">{{ v }} — {{ l }}</option>{% endfor %}</select>
+    <label id="f-minutes-wrap">Minutes late <input type="number" name="minutes_late" id="f-minutes" min="1" max="999"></label>
+    <label id="f-occ-wrap">Counts as
+      <select name="occurrence">
+        <option value="1">1 occurrence</option><option value="2">2 occurrences (double)</option><option value="0">0 — excused</option>
+      </select>
     </label>
-    <label class="wide">Notes <input type="text" name="notes" maxlength="500"></label>
-    <button type="submit">Log event</button>
+    <p class="hint wide" id="f-hint" hidden>7 minutes or less: this goes on the small-lates counter instead.
+      {% if month_lates == 2 %}It will be the 3rd this month, so it adds 1 occurrence.{% elif month_lates < 2 %}It won't add an occurrence yet ({{ month_lates + 1 }} of 3).{% else %}They already hit 3 this month, so it's recorded only.{% endif %}</p>
+    <label class="wide">Notes (optional) <input type="text" name="notes" maxlength="500"></label>
+    <button type="submit">Save</button>
   </form>
-  <p class="muted small">A <em>Late</em> of 1–{{ grace }} minutes goes to the monthly late counter (occurrence is ignored).
-    The 3rd one in a month copies all 3 into attendance: 0, 0, then 1 occurrence. Later ones that month are recorded only.</p>
 </details>
+<script>
+  // Show "minutes late" only for lates, and explain when a late goes to the small-lates counter.
+  (function () {
+    const type = document.getElementById('f-type'), mins = document.getElementById('f-minutes');
+    function update() {
+      const isLate = type.value === 'Late', m = parseInt(mins.value, 10);
+      const small = isLate && m > 0 && m <= {{ grace }};
+      document.getElementById('f-minutes-wrap').hidden = !isLate;
+      document.getElementById('f-occ-wrap').hidden = small;
+      document.getElementById('f-hint').hidden = !small;
+      mins.required = isLate;
+    }
+    type.addEventListener('change', update); mins.addEventListener('input', update); update();
+  })();
+</script>
 {% endif %}
 
-<h2>Attendance record</h2>
+<details class="explain">
+  <summary>How occurrences work</summary>
+  <ul>
+    <li>Absences, late arrivals over {{ grace }} minutes and leaving early usually count as 1 occurrence. Some count double (2).</li>
+    <li>Lates of {{ grace }} minutes or less are "small lates". The first two in a month don't count. The 3rd adds 1 occurrence. After that, they're noted but don't add more. The count starts again on the 1st.</li>
+  </ul>
+</details>
+
+<h2>History</h2>
 {% if rows %}
-<table>
-  <tr><th>Date</th><th>Type</th><th class="r">Min late</th><th class="r">Occurrence</th><th class="r">Running total</th><th>Notes</th></tr>
+<table class="history">
+  <tr><th>Date</th><th>What happened</th><th class="r">Counts</th><th class="r">Total</th></tr>
   {% for e, running in rows %}
   <tr>
-    <td>{{ e.event_date }}</td><td>{{ e.event_type }}</td>
-    <td class="r">{{ e.minutes_late if e.minutes_late is not none else '' }}</td>
-    <td class="r">{{ e.occurrence }} <span class="muted small">{{ occ_labels[e.occurrence] }}</span></td>
-    <td class="r">{{ running }}</td><td>{{ e.notes }}</td>
+    <td class="nowrap">{{ e.event_date|nice }}</td>
+    <td>{{ e.event_type }}{% if e.minutes_late %} <span class="muted">· {{ e.minutes_late }} min</span>{% endif %}
+      {% if e.notes %}<div class="muted small">{{ e.notes }}</div>{% endif %}</td>
+    <td class="r">{% if e.occurrence %}<span class="plus">+{{ e.occurrence }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+    <td class="r">{{ running }}</td>
   </tr>
   {% endfor %}
 </table>
-{% else %}<p class="muted">No attendance events.</p>{% endif %}
+{% else %}<p class="muted">Nothing on record.</p>{% endif %}
 
-<h2>Late counter (≤{{ grace }} min)</h2>
-{% if lates %}
-<table>
-  <tr><th>Date</th><th class="r">Min late</th><th>Copied to attendance</th></tr>
-  {% for l in lates %}
-  <tr><td>{{ l.event_date }}</td><td class="r">{{ l.minutes_late }}</td><td>{{ 'Yes' if l.copied_to_attendance else 'No' }}</td></tr>
-  {% endfor %}
-</table>
-{% else %}<p class="muted">No lates within {{ grace }} minutes.</p>{% endif %}
+<details class="section">
+  <summary>Small lates log ({{ lates|length }})</summary>
+  {% if lates %}
+  <table>
+    <tr><th>Date</th><th class="r">Minutes</th><th>Added to history?</th></tr>
+    {% for l in lates %}<tr><td>{{ l.event_date|nice }}</td><td class="r">{{ l.minutes_late }}</td><td>{{ 'Yes' if l.copied_to_attendance else 'Not yet' }}</td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted">None.</p>{% endif %}
+</details>
 
 {% if actions %}
-<h2>Disciplinary history</h2>
-<table>
-  <tr><th>Tier</th><th class="r">At occurrences</th><th>Status</th><th>Issued</th><th></th></tr>
-  {% for a in actions %}
-  <tr><td>{{ tier_label(a.tier) }}</td><td class="r">{{ a.occurrence_count }}</td>
-    <td><span class="status {{ a.status }}">{{ a.status }}</span></td><td>{{ a.issued_date or '' }}</td>
-    <td>{% if a.document_path %}<a href="/disciplinary/{{ a.id }}/document">.docx</a>{% endif %}</td></tr>
-  {% endfor %}
-</table>
+<details class="section">
+  <summary>Disciplinary steps ({{ actions|length }})</summary>
+  <table>
+    <tr><th>Step</th><th>Status</th><th>Issued</th><th></th></tr>
+    {% for a in actions %}
+    <tr><td>{{ tier_label(a.tier) }} <span class="muted small">at {{ a.occurrence_count }}</span></td><td>{{ status(a.status) }}</td>
+      <td>{{ a.issued_date|nice if a.issued_date else '' }}</td>
+      <td>{% if a.document_path %}<a href="/disciplinary/{{ a.id }}/document">Word doc</a>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+</details>
 {% endif %}
 {% endblock %}

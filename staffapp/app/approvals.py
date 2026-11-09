@@ -5,10 +5,19 @@ adding a new type later means adding one function to DECISION_HANDLERS.
 """
 from datetime import date, datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import Approval, DisciplinaryAction, Employee, VacationRequest
 from .notify import send_email
+
+
+def pending_for(db: Session, user_id: int, is_hr: bool) -> list[Approval]:
+    """Pending items a user should decide. HR sees all, including unassigned ones."""
+    q = select(Approval).where(Approval.status == "pending").order_by(Approval.created_at)
+    if not is_hr:
+        q = q.where(Approval.approver_id == user_id)
+    return list(db.scalars(q))
 
 
 def create_approval(db: Session, type_: str, ref_id: int, approver: Employee | None) -> Approval:

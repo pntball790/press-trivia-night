@@ -1,24 +1,38 @@
 {% extends "base.html" %}
-{% block title %}Log in{% endblock %}
+{% block title %}Choose a view{% endblock %}
 {% block content %}
-<div class="card narrow">
-  <h1>Log in (prototype)</h1>
-  <p class="muted">No passwords. Pick who you are; the role defaults to that person's role but can be overridden for testing.</p>
-  <form method="post" action="/login" class="stack">
-    <label>User
-      <select name="user_id" required>
-        {% for e in employees %}
-          <option value="{{ e.id }}">{{ e.name }} — {{ e.title }} ({{ e.role }})</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Role
-      <select name="role">
-        <option value="">Use their own role</option>
-        {% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
-      </select>
-    </label>
-    <button type="submit">Log in</button>
-  </form>
+<div class="narrow">
+  <h1>Who are you today?</h1>
+  <p class="muted">Demo only — no passwords. Pick a view to explore.</p>
+  <div class="personas">
+    {% for p in personas %}
+    <form method="post" action="/login">
+      <input type="hidden" name="user_id" value="{{ p.id }}"><input type="hidden" name="role" value="{{ p.role }}">
+      <button class="persona">
+        <span class="persona-role">{{ {'staff':'Staff','manager':'Manager','hr':'HR'}[p.role] }}</span>
+        <span class="persona-name">{{ p.name }} · {{ p.title }}</span>
+        <span class="persona-blurb">{{ p.blurb }}</span>
+      </button>
+    </form>
+    {% endfor %}
+  </div>
+
+  <details class="card">
+    <summary>Log in as someone else</summary>
+    <form method="post" action="/login" class="stack">
+      <label>Person
+        <select name="user_id" required>
+          {% for e in employees %}<option value="{{ e.id }}">{{ e.name }} — {{ e.title }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>View as
+        <select name="role">
+          <option value="">Their own role</option>
+          {% for r in roles %}<option value="{{ r }}">{{ {'staff':'Staff','manager':'Manager','hr':'HR'}[r] }}</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit">Continue</button>
+    </form>
+  </details>
 </div>
 {% endblock %}

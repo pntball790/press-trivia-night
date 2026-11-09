@@ -16,6 +16,7 @@ from . import approvals as approvals_svc
 from . import attendance, disciplinary, vacation
 from .auth import (
     ROLES,
+    demo_personas,
     CurrentUser,
     LoginRequired,
     can_manage,
@@ -35,6 +36,16 @@ app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 templates.env.globals["tier_label"] = disciplinary.tier_label
 templates.env.globals["occ_labels"] = attendance.OCCURRENCE_LABELS
+templates.env.globals["next_tier"] = disciplinary.next_tier
+templates.env.globals["tier_for"] = disciplinary.tier_for
+
+
+def nice_date(d: date) -> str:
+    """'Mon, Nov 16' (adds the year if it isn't this year)."""
+    return d.strftime("%a, %b %-d") + ("" if d.year == date.today().year else d.strftime(", %Y"))
+
+
+templates.env.filters["nice"] = nice_date
 
 create_tables()
 
@@ -42,6 +53,12 @@ create_tables()
 # ---------- helpers ----------
 
 def render(request: Request, name: str, user: CurrentUser | None = None, status_code: int = 200, **context):
+    if user is not None and "personas" not in context:
+        # For the "View as" quick-switch menu in the top bar.
+        from .db import SessionLocal
+
+        with SessionLocal() as db:
+            context["personas"] = demo_personas(db)
     return templates.TemplateResponse(request, name, {"user": user, **context}, status_code=status_code)
 
 
@@ -74,7 +91,7 @@ async def _http_error(request: Request, exc: StarletteHTTPException):
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, db: Session = Depends(get_db)):
     employees = list(db.scalars(select(Employee).where(Employee.active).order_by(Employee.role.desc(), Employee.name)))
-    return render(request, "login.html", None, employees=employees, roles=ROLES)
+    return render(request, "login.html", None, employees=employees, roles=ROLES, personas=demo_personas(db))
 
 
 @app.post("/login")
@@ -97,47 +114,74 @@ def logout():
     return resp
 
 
-# ---------- dashboard ----------
+# ---------- home (to-do list) ----------
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, user: CurrentUser = Depends(current_user), db: Session = Depends(get_db)):
+def home(request: Request, user: CurrentUser = Depends(current_user), db: Session = Depends(get_db)):
+    """A to-do list: only things that need action, plus a couple of glanceable facts."""
     today = date.today()
+    my_requests = list(
+        db.scalars(
+            select(VacationRequest)
+            .where(VacationRequest.employee_id == user.id, VacationRequest.end_date >= today,
+                   VacationRequest.status.in_(("pending", "approved")))
+            .order_by(VacationRequest.start_date)
+        )
+    )
     context = {
         "my_total": attendance.occurrence_total(db, user.id),
         "my_lates": len(attendance.lates_in_month(db, user.id, today)),
-        "my_requests": list(
-            db.scalars(
-                select(VacationRequest)
-                .where(VacationRequest.employee_id == user.id, VacationRequest.end_date >= today)
-                .order_by(VacationRequest.start_date)
-            )
-        ),
-        "pending_count": len(_pending_approvals(db, user)) if not user.is_staff else 0,
-        "due": disciplinary.find_due(db, disciplinary_scope(db, user)) if not user.is_staff else [],
+        "my_pending": [r for r in my_requests if r.status == "pending"],
+        "my_upcoming": [r for r in my_requests if r.status == "approved"],
     }
-    return render(request, "dashboard.html", user, **context)
+    if not user.is_staff:
+        pending = approvals_svc.pending_for(db, user.id, user.is_hr)
+        team = disciplinary_scope(db, user)
+        team_ids = [e.id for e in team]
+        context.update(
+            pending_time_off=sum(1 for a in pending if a.type == "vacation"),
+            pending_disc=sum(1 for a in pending if a.type == "disciplinary"),
+            due=disciplinary.find_due(db, team),
+            # People one small late away from an occurrence this month.
+            near_late=[e for e in team if len(attendance.lates_in_month(db, e.id, today)) == attendance.LATES_PER_OCCURRENCE - 1],
+            team_off_soon=list(
+                db.scalars(
+                    select(VacationRequest)
+                    .where(VacationRequest.employee_id.in_(team_ids), VacationRequest.status == "approved",
+                           VacationRequest.start_date <= today + timedelta(days=14), VacationRequest.end_date >= today)
+                    .order_by(VacationRequest.start_date)
+                )
+            ),
+            team=team,
+        )
+    return render(request, "home.html", user, **context)
 
 
 # ---------- attendance ----------
 
-@app.get("/attendance", response_class=HTMLResponse)
-def attendance_list(request: Request, user: CurrentUser = Depends(current_user), db: Session = Depends(get_db)):
-    if user.is_staff:
-        return RedirectResponse(f"/attendance/{user.id}", status_code=303)
-    employees = visible_employees(db, user)
+@app.get("/attendance")
+def attendance_root(user: CurrentUser = Depends(current_user)):
+    """Staff go to their own record; managers/HR to the team list."""
+    return RedirectResponse(f"/attendance/{user.id}" if user.is_staff else "/team", status_code=303)
+
+
+@app.get("/team", response_class=HTMLResponse)
+def team_page(request: Request, user: CurrentUser = Depends(current_user), db: Session = Depends(get_db)):
+    require_role(user, "manager", "hr")
+    employees = disciplinary_scope(db, user)
     totals = attendance.occurrence_totals(db, [e.id for e in employees])
     today = date.today()
     rows = [
-        {
-            "emp": e,
-            "total": totals[e.id],
-            "tier": disciplinary.tier_for(totals[e.id]),
-            "lates": len(attendance.lates_in_month(db, e.id, today)),
-            "show_tier": can_manage(user, e),
-        }
+        {"emp": e, "total": totals[e.id], "lates": len(attendance.lates_in_month(db, e.id, today))}
         for e in employees
     ]
-    return render(request, "attendance_list.html", user, rows=rows)
+    return render(request, "team.html", user, rows=rows, due=disciplinary.find_due(db, employees))
+
+
+@app.get("/attendance/pick")
+def attendance_pick(employee_id: int, user: CurrentUser = Depends(current_user)):
+    """Target of the 'Log attendance for…' picker on the home page."""
+    return RedirectResponse(f"/attendance/{employee_id}?log=1", status_code=303)
 
 
 @app.get("/attendance/{employee_id}", response_class=HTMLResponse)
@@ -176,6 +220,7 @@ def attendance_detail(
         event_types=attendance.EVENT_TYPES,
         grace=attendance.GRACE_MINUTES,
         today=date.today(),
+        open_log=request.query_params.get("log") == "1",
     )
 
 
@@ -225,14 +270,17 @@ def disciplinary_page(request: Request, user: CurrentUser = Depends(current_user
 
 
 @app.post("/disciplinary/run")
-def disciplinary_run(user: CurrentUser = Depends(current_user), db: Session = Depends(get_db)):
+def disciplinary_run(
+    back: str = Form("/disciplinary"), user: CurrentUser = Depends(current_user), db: Session = Depends(get_db)
+):
     require_role(user, "manager", "hr")
+    back = back if back.startswith("/") and not back.startswith("//") else "/disciplinary"  # local pages only
     created = disciplinary.run_check(db, disciplinary_scope(db, user))
     db.commit()
     if not created:
-        return redirect("/disciplinary", "No employees have reached a new tier.")
+        return redirect(back, "Nobody has reached a new step.")
     names = ", ".join(f"{a.employee.name} ({disciplinary.tier_label(a.tier)})" for a in created)
-    return redirect("/disciplinary", f"Generated {len(created)} document(s) and sent for approval: {names}")
+    return redirect(back, f"Created {len(created)} document(s), now waiting in Approvals: {names}")
 
 
 @app.get("/disciplinary/{action_id}/document")
@@ -253,10 +301,16 @@ def disciplinary_document(action_id: int, user: CurrentUser = Depends(current_us
 # ---------- vacation ----------
 
 @app.get("/vacation", response_class=HTMLResponse)
-def vacation_page(request: Request, user: CurrentUser = Depends(current_user), db: Session = Depends(get_db)):
+def vacation_page(
+    request: Request, month: str = "", user: CurrentUser = Depends(current_user), db: Session = Depends(get_db)
+):
+    """Time off: request form, calendar of approved time off, and request lists."""
+    today = date.today()
     mine = list(
         db.scalars(
-            select(VacationRequest).where(VacationRequest.employee_id == user.id).order_by(VacationRequest.start_date.desc())
+            select(VacationRequest)
+            .where(VacationRequest.employee_id == user.id, VacationRequest.status != "cancelled")
+            .order_by(VacationRequest.start_date.desc())
         )
     )
     team = []
@@ -265,11 +319,50 @@ def vacation_page(request: Request, user: CurrentUser = Depends(current_user), d
         team = list(
             db.scalars(
                 select(VacationRequest)
-                .where(VacationRequest.employee_id.in_(ids), VacationRequest.end_date >= date.today() - timedelta(days=30))
+                .where(VacationRequest.employee_id.in_(ids), VacationRequest.end_date >= today,
+                       VacationRequest.status.in_(("pending", "approved")))
                 .order_by(VacationRequest.start_date)
             )
         )
-    return render(request, "vacation.html", user, mine=mine, team=team, today=date.today())
+    return render(
+        request, "vacation.html", user,
+        mine=mine, team=team, today=today, **_calendar_context(db, user, month),
+    )
+
+
+@app.get("/calendar")
+def calendar_redirect(month: str = ""):
+    """Old address; the calendar now lives on the Time off page."""
+    return RedirectResponse(f"/vacation?month={month}#calendar" if month else "/vacation#calendar", status_code=303)
+
+
+def _calendar_context(db: Session, user: CurrentUser, month: str) -> dict:
+    """Month grid of approved time off for the people this user can see."""
+    try:
+        first = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
+    except ValueError:
+        first = date.today().replace(day=1)
+    weeks = calendar.Calendar(firstweekday=6).monthdatescalendar(first.year, first.month)  # Sunday first
+    start, end = weeks[0][0], weeks[-1][-1]
+    ids = [e.id for e in visible_employees(db, user)]
+    approved = list(
+        db.scalars(
+            select(VacationRequest).where(
+                VacationRequest.employee_id.in_(ids),
+                VacationRequest.status == "approved",
+                VacationRequest.start_date <= end,
+                VacationRequest.end_date >= start,
+            )
+        )
+    )
+    by_day = {d: [r for r in approved if r.start_date <= d <= r.end_date] for week in weeks for d in week}
+    return {
+        "first": first,
+        "weeks": weeks,
+        "by_day": by_day,
+        "prev": (first - timedelta(days=1)).replace(day=1).strftime("%Y-%m"),
+        "next": (first + timedelta(days=32)).replace(day=1).strftime("%Y-%m"),
+    }
 
 
 @app.post("/vacation")
@@ -297,8 +390,8 @@ def vacation_submit(
             parts.append("one of your own requests")
         if others:
             parts.append(f"{others} teammate request(s)")
-        return redirect("/vacation", f"Submitted. Note: these dates overlap {' and '.join(parts)}.", "warn")
-    return redirect("/vacation", "Request submitted to your manager.")
+        return redirect("/vacation", f"Sent to your manager. Heads-up: these dates overlap {' and '.join(parts)}.", "warn")
+    return redirect("/vacation", "Sent to your manager for approval.")
 
 
 @app.post("/vacation/{request_id}/cancel")
@@ -314,48 +407,7 @@ def vacation_cancel(request_id: int, user: CurrentUser = Depends(current_user), 
     return redirect("/vacation", "Request cancelled.")
 
 
-@app.get("/calendar", response_class=HTMLResponse)
-def calendar_page(
-    request: Request, month: str = "", user: CurrentUser = Depends(current_user), db: Session = Depends(get_db)
-):
-    try:
-        first = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
-    except ValueError:
-        first = date.today().replace(day=1)
-    weeks = calendar.Calendar(firstweekday=6).monthdatescalendar(first.year, first.month)  # Sunday first
-    start, end = weeks[0][0], weeks[-1][-1]
-
-    ids = [e.id for e in visible_employees(db, user)]
-    approved = list(
-        db.scalars(
-            select(VacationRequest).where(
-                VacationRequest.employee_id.in_(ids),
-                VacationRequest.status == "approved",
-                VacationRequest.start_date <= end,
-                VacationRequest.end_date >= start,
-            )
-        )
-    )
-    # Map each day -> list of requests covering it.
-    by_day = {d: [r for r in approved if r.start_date <= d <= r.end_date] for week in weeks for d in week}
-
-    prev_month = (first - timedelta(days=1)).replace(day=1)
-    next_month = (first + timedelta(days=32)).replace(day=1)
-    return render(
-        request, "calendar.html", user,
-        first=first, weeks=weeks, by_day=by_day, today=date.today(),
-        prev=prev_month.strftime("%Y-%m"), next=next_month.strftime("%Y-%m"),
-    )
-
-
 # ---------- approvals ----------
-
-def _pending_approvals(db: Session, user: CurrentUser) -> list[Approval]:
-    q = select(Approval).where(Approval.status == "pending").order_by(Approval.created_at)
-    if not user.is_hr:
-        q = q.where(Approval.approver_id == user.id)  # unassigned (null) items go to HR
-    return list(db.scalars(q))
-
 
 def _describe(db: Session, approval: Approval) -> dict:
     """Pull together what the approvals page shows for one item."""
@@ -364,7 +416,9 @@ def _describe(db: Session, approval: Approval) -> dict:
         return {
             "label": "Time off",
             "employee": req.employee,
-            "summary": f"{req.start_date:%a %b %d} to {req.end_date:%a %b %d, %Y}",
+            "summary": nice_date(req.start_date) if req.start_date == req.end_date
+            else f"{nice_date(req.start_date)} to {nice_date(req.end_date)}",
+            "days": (req.end_date - req.start_date).days + 1,
             "note": req.note,
             "overlaps": vacation.overlaps(db, req.employee, req.start_date, req.end_date, exclude_id=req.id),
         }
@@ -372,7 +426,8 @@ def _describe(db: Session, approval: Approval) -> dict:
     return {
         "label": "Disciplinary",
         "employee": action.employee,
-        "summary": f"{disciplinary.tier_label(action.tier)} ({action.occurrence_count} occurrences)",
+        "summary": disciplinary.tier_label(action.tier),
+            "occurrences": action.occurrence_count,
         "doc_url": f"/disciplinary/{action.id}/document",
     }
 
@@ -380,7 +435,7 @@ def _describe(db: Session, approval: Approval) -> dict:
 @app.get("/approvals", response_class=HTMLResponse)
 def approvals_page(request: Request, user: CurrentUser = Depends(current_user), db: Session = Depends(get_db)):
     require_role(user, "manager", "hr")
-    pending = [(a, _describe(db, a)) for a in _pending_approvals(db, user)]
+    pending = [(a, _describe(db, a)) for a in approvals_svc.pending_for(db, user.id, user.is_hr)]
     q = select(Approval).where(Approval.status.in_(("approved", "denied"))).order_by(Approval.decided_at.desc()).limit(25)
     if not user.is_hr:
         q = q.where(Approval.approver_id == user.id)
@@ -407,4 +462,5 @@ def approvals_decide(
     except ValueError as e:
         return redirect("/approvals", str(e), "error")
     db.commit()
-    return redirect("/approvals", f"{approval.type.title()} item {approval.status}.")
+    what = "Time off" if approval.type == "vacation" else "Disciplinary step"
+    return redirect("/approvals", f"{what} {approval.status}.")

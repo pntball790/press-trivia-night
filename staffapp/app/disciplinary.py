@@ -52,6 +52,11 @@ def tier_for(total: int) -> Tier | None:
     return reached[-1] if reached else None
 
 
+def next_tier(total: int) -> Tier | None:
+    """The next tier above this total, or None at the top."""
+    return next((t for t in TIERS if t.threshold > total), None)
+
+
 def tier_label(key: str) -> str:
     return TIERS_BY_KEY[key].label if key in TIERS_BY_KEY else key
 

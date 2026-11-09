@@ -1,42 +1,65 @@
 {% extends "base.html" %}
+{% from "_macros.html" import status, dates %}
 {% block title %}Time off{% endblock %}
 {% block content %}
 <h1>Time off</h1>
-<div class="card">
-  <h2>Request time off</h2>
+
+<details class="card log" id="request" {% if request.query_params.get('new') %}open{% endif %}>
+  <summary class="button">+ Request time off</summary>
   <form method="post" action="/vacation" class="grid-form">
-    <label>From <input type="date" name="start_date" min="{{ today }}" required></label>
-    <label>To <input type="date" name="end_date" min="{{ today }}" required></label>
-    <label class="wide">Note <input type="text" name="note" maxlength="500"></label>
-    <button type="submit">Submit</button>
+    <label>First day off <input type="date" name="start_date" min="{{ today }}" required></label>
+    <label>Last day off <input type="date" name="end_date" min="{{ today }}" required></label>
+    <label class="wide">Note for your manager (optional) <input type="text" name="note" maxlength="500"></label>
+    <button type="submit">Send request</button>
   </form>
-</div>
+</details>
 
 <h2>My requests</h2>
 {% if mine %}
-<table>
-  <tr><th>Dates</th><th>Days</th><th>Note</th><th>Status</th><th></th></tr>
+<ul class="list">
   {% for r in mine %}
+  <li class="{% if r.end_date < today %}past{% endif %}">
+    <span>{{ dates(r) }} <span class="muted small">({{ (r.end_date - r.start_date).days + 1 }} day{{ 's' if r.end_date != r.start_date }})</span></span>
+    <span class="right">{{ status(r.status) }}
+      {% if r.status == 'pending' %}<form method="post" action="/vacation/{{ r.id }}/cancel" class="inline"><button class="link">Cancel</button></form>{% endif %}
+    </span>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}<p class="muted">You haven't requested any time off.</p>{% endif %}
+
+{% if team %}
+<h2>{{ 'Everyone' if user.is_hr else 'My team' }} — upcoming</h2>
+<ul class="list">
+  {% for r in team %}
+  <li><span><strong>{{ r.employee.name }}</strong> {{ dates(r) }}</span><span class="right">{{ status(r.status) }}</span></li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<h2 id="calendar">Calendar</h2>
+<div class="cal-head">
+  <a class="button secondary-btn" href="/vacation?month={{ prev }}#calendar">‹</a>
+  <strong>{{ first.strftime('%B %Y') }}</strong>
+  <a class="button secondary-btn" href="/vacation?month={{ next }}#calendar">›</a>
+</div>
+<p class="muted small">Approved time off{% if user.is_staff %} (yours){% endif %}.{% if not user.is_staff %} <span class="crowd-key"></span> = 2+ people from one team off.{% endif %}</p>
+<div class="cal-scroll">
+<table class="cal">
+  <tr>{% for d in ['S','M','T','W','T','F','S'] %}<th>{{ d }}</th>{% endfor %}</tr>
+  {% for week in weeks %}
   <tr>
-    <td>{{ r.start_date }} → {{ r.end_date }}</td><td>{{ (r.end_date - r.start_date).days + 1 }}</td><td>{{ r.note }}</td>
-    <td><span class="status {{ r.status }}">{{ r.status }}</span></td>
-    <td>{% if r.status == 'pending' %}
-      <form method="post" action="/vacation/{{ r.id }}/cancel" class="inline"><button class="link">Cancel</button></form>
-    {% endif %}</td>
+    {% for d in week %}
+    {% set off = by_day[d] %}
+    {% set teams = off|map(attribute='employee.team')|list %}
+    {% set crowded = teams|length != teams|unique|list|length %}
+    <td class="{% if d.month != first.month %}other{% endif %}{% if d == today %} today{% endif %}{% if crowded %} crowded{% endif %}">
+      <div class="daynum">{{ d.day }}</div>
+      {% for r in off %}<div class="off team-{{ r.employee.team|lower }}">{{ r.employee.name.split()[0] }}</div>{% endfor %}
+    </td>
+    {% endfor %}
   </tr>
   {% endfor %}
 </table>
-{% else %}<p class="muted">No requests yet.</p>{% endif %}
-
-{% if team %}
-<h2>{{ 'All' if user.is_hr else 'Team' }} requests (last 30 days onward)</h2>
-<table>
-  <tr><th>Employee</th><th>Dates</th><th>Note</th><th>Status</th></tr>
-  {% for r in team %}
-  <tr><td>{{ r.employee.name }}</td><td>{{ r.start_date }} → {{ r.end_date }}</td><td>{{ r.note }}</td>
-    <td><span class="status {{ r.status }}">{{ r.status }}</span></td></tr>
-  {% endfor %}
-</table>
-<p><a href="/approvals">Approve or deny on the Approvals page →</a></p>
-{% endif %}
+</div>
 {% endblock %}

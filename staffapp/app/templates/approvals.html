@@ -1,40 +1,64 @@
 {% extends "base.html" %}
+{% from "_macros.html" import status %}
 {% block title %}Approvals{% endblock %}
 {% block content %}
 <h1>Approvals</h1>
-<p class="muted">{% if user.is_hr %}All pending items (HR).{% else %}Items assigned to you.{% endif %}</p>
+{% set time_off = pending|selectattr('0.type', 'equalto', 'vacation')|list %}
+{% set disc = pending|selectattr('0.type', 'equalto', 'disciplinary')|list %}
 
-{% if pending %}
-{% for a, info in pending %}
-<div class="card approval">
-  <div><span class="badge">{{ info.label }}</span> <strong>{{ info.employee.name }}</strong> — {{ info.summary }}</div>
-  <div class="muted small">Submitted {{ a.created_at.strftime('%Y-%m-%d %H:%M') }}{% if a.approver %} · Assigned to {{ a.approver.name }}{% else %} · Unassigned (HR){% endif %}</div>
-  {% if info.note %}<div>Note: {{ info.note }}</div>{% endif %}
-  {% if info.doc_url %}<div><a href="{{ info.doc_url }}">Download document (.docx)</a> · <a href="/attendance/{{ info.employee.id }}">Attendance history</a></div>{% endif %}
-  {% if info.overlaps %}
-  <div class="flash warn">⚠ Overlaps with:
-    {% for r in info.overlaps %}{{ r.employee.name }} {{ r.start_date }}→{{ r.end_date }} ({{ r.status }}){% if not loop.last %}; {% endif %}{% endfor %}
-  </div>
-  {% endif %}
-  <form method="post" action="/approvals/{{ a.id }}" class="decide">
-    <input type="text" name="comment" placeholder="Comment (optional)" maxlength="500">
+{% if not pending %}<div class="todo done">✓ All caught up. Nothing waiting for you.</div>{% endif %}
+
+{% macro decide_form(a) %}
+<form method="post" action="/approvals/{{ a.id }}" class="decide">
+  <input type="text" name="comment" placeholder="Comment (optional)" maxlength="500">
+  <div class="decide-buttons">
     <button name="decision" value="approve">Approve</button>
     <button name="decision" value="deny" class="secondary">Deny</button>
-  </form>
+  </div>
+</form>
+{% endmacro %}
+
+{% if time_off %}
+<h2 id="time-off">Time off ({{ time_off|length }})</h2>
+{% for a, info in time_off %}
+<div class="card approval">
+  <div class="approval-head"><strong>{{ info.employee.name }}</strong><span>{{ info.summary }} <span class="muted">· {{ info.days }} day{{ 's' if info.days > 1 }}</span></span></div>
+  {% if info.note %}<div class="muted">“{{ info.note }}”</div>{% endif %}
+  {% if info.overlaps %}
+  <div class="flash warn">Also off then:
+    {% for r in info.overlaps %}{{ r.employee.name }} ({{ 'approved' if r.status == 'approved' else 'waiting' }}){% if not loop.last %}, {% endif %}{% endfor %}
+  </div>
+  {% endif %}
+  {% if user.is_hr and a.approver %}<div class="muted small">Assigned to {{ a.approver.name }}</div>{% endif %}
+  {{ decide_form(a) }}
 </div>
 {% endfor %}
-{% else %}<p class="muted">Nothing pending. 🎉</p>{% endif %}
+{% endif %}
 
-<h2>Recently decided</h2>
-{% if recent %}
-<table>
-  <tr><th>Type</th><th>Employee</th><th>Item</th><th>Decision</th><th>By</th><th>When</th><th>Comment</th></tr>
-  {% for a, info in recent %}
-  <tr><td>{{ info.label }}</td><td>{{ info.employee.name }}</td><td>{{ info.summary }}</td>
-    <td><span class="status {{ a.status }}">{{ a.status }}</span></td>
-    <td>{{ a.decided_by.name if a.decided_by else '' }}</td>
-    <td>{{ a.decided_at.strftime('%Y-%m-%d %H:%M') if a.decided_at else '' }}</td><td>{{ a.comment }}</td></tr>
-  {% endfor %}
-</table>
-{% else %}<p class="muted">Nothing yet.</p>{% endif %}
+{% if disc %}
+<h2 id="disciplinary">Disciplinary ({{ disc|length }})</h2>
+{% for a, info in disc %}
+<div class="card approval">
+  <div class="approval-head"><strong>{{ info.employee.name }}</strong><span>{{ info.summary }} <span class="muted">· {{ info.occurrences }} occurrences</span></span></div>
+  <div><a href="{{ info.doc_url }}">Open Word document</a> · <a href="/attendance/{{ info.employee.id }}">See their history</a></div>
+  <div class="muted small">Approve once it's been delivered; today's date is recorded as the issue date.</div>
+  {% if user.is_hr and a.approver %}<div class="muted small">Assigned to {{ a.approver.name }}</div>{% endif %}
+  {{ decide_form(a) }}
+</div>
+{% endfor %}
+{% endif %}
+
+<details class="section">
+  <summary>Recently decided ({{ recent|length }})</summary>
+  {% if recent %}
+  <table>
+    <tr><th>Person</th><th>Item</th><th>Decision</th></tr>
+    {% for a, info in recent %}
+    <tr><td>{{ info.employee.name }}</td>
+      <td>{{ info.label }}: {{ info.summary }}{% if a.comment %}<div class="muted small">“{{ a.comment }}”</div>{% endif %}</td>
+      <td>{{ status(a.status) }}<div class="muted small">{{ a.decided_by.name.split()[0] if a.decided_by else '' }}{{ ', ' ~ a.decided_at.date()|nice if a.decided_at else '' }}</div></td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">Nothing yet.</p>{% endif %}
+</details>
 {% endblock %}

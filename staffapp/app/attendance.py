@@ -67,7 +67,8 @@ def log_event(
         )
     )
     db.flush()
-    return f"Logged {event_type} on {event_date} ({OCCURRENCE_LABELS[occurrence]})."
+    counts = {0: "doesn't count", 1: "counts as 1 occurrence", 2: "counts as 2 occurrences"}[occurrence]
+    return f"Saved: {event_type} on {event_date:%b %-d} ({counts})."
 
 
 def record_grace_late(db: Session, employee_id: int, event_date: date, minutes_late: int, notes: str = "") -> str:
@@ -96,11 +97,11 @@ def record_grace_late(db: Session, employee_id: int, event_date: date, minutes_l
             )
             late.copied_to_attendance = True
         db.flush()
-        return f"Late #{count} this month: 3 lates copied to attendance (1 occurrence added)."
+        return f"Saved. That's {count} small lates this month, so they were added to the history and 1 occurrence was counted."
 
     if already_copied:
-        return f"Late #{count} this month: recorded only (already copied this month)."
-    return f"Late #{count} of {LATES_PER_OCCURRENCE} this month: recorded in the late counter."
+        return f"Saved. Small late #{count} this month: noted, no extra occurrence (the limit was already reached)."
+    return f"Saved. Small late {count} of {LATES_PER_OCCURRENCE} this month: no occurrence yet."
 
 
 def lates_in_month(db: Session, employee_id: int, any_day: date) -> list[LateEvent]:

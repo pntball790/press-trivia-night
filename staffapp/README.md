@@ -22,19 +22,27 @@ Emails are printed to the terminal running uvicorn (see `app/notify.py`).
 
 ## Logging in
 
-There are no passwords. The login page has a **user** dropdown and a **role**
-dropdown (leave role blank to use that person's own role; override it to test).
-Use **Switch user** in the top bar to change.
+There are no passwords. The login page has three one-click views:
 
-Demo people worth trying:
-
-| Who | Role | Why |
+| Button | Person | Try this |
 |---|---|---|
-| Pat Morgan | HR | Sees everything; gets approvals for anyone without a manager (e.g. Dana's own time off) |
-| Dana Whitfield | Manager, GI | Chloe (4) and David (6) are due new tiers; Chloe's pending time off overlaps Aisha and Ben |
-| Luis Ortega | Manager, Hepatology | Henry (10) is due a Verbal Warning; Isla (5) a Heads Up; Jamal (13) already has his 1st Written Warning, so nothing new |
-| Farah Haddad | Staff, GI | Has 2 lates ≤7 min this month; log a 3rd as Dana to see the copy rule |
-| Emma Rossi | Staff, GI | 9 occurrences, tiers up to Verbal Counseling already issued, so nothing new |
+| **Staff** | Farah Haddad | See your occurrences and the ●●○ small-lates counter; request time off |
+| **Manager** | Dana Whitfield (GI) | The To-do list: approve a time-off request that overlaps others, create disciplinary documents for Chloe and David, log a 3rd small late for Farah |
+| **HR** | Pat Morgan | Everyone's records and every pending approval |
+
+Switch any time from the name menu in the top-right corner. "Log in as someone else"
+lets you pick any person and override their role for testing.
+
+## Pages
+
+| Staff | Managers and HR |
+|---|---|
+| **Home** – occurrences, small lates this month, time-off status, a big "Request time off" button | **To-do** – only things that need action (approvals waiting, people who reached a new disciplinary step), a quick "Log attendance" picker, and who's off soon |
+| **My attendance** – history with +1/+2 per event and a plain explanation of the rules | **Team** – one card per person: occurrences, small lates (●●○) and their disciplinary step with the next one. Tap a person to see their history or log attendance |
+| **Time off** – request form, my requests, and a calendar | **Time off** – same, plus the team's upcoming requests on the calendar |
+| | **Approvals** – grouped into time off and disciplinary, with a count badge in the menu |
+
+Disciplinary documents are reached from Team (and the To-do list), not a separate tab.
 
 ## Who sees what
 
@@ -69,7 +77,7 @@ Demo people worth trying:
 | 14 (15) | 2nd Written Warning |
 | 16+ | Termination |
 
-**Disciplinary → Generate documents** (managers: their team; HR: everyone) finds
+**Create documents** (on To-do, Team or the Disciplinary page; managers: their team; HR: everyone) finds
 everyone whose current tier hasn't been generated yet, then for each:
 1. fills `doc_templates/<tier>.docx` with their name and full attendance history → `generated/`,
 2. creates a disciplinary action (status *pending*) and an approval for their manager,
@@ -88,7 +96,7 @@ Staff submit a date range; it goes to their manager on the Approvals page.
 Overlaps are checked against pending and approved requests **in the same team**:
 the employee sees a warning after submitting (count only, no names), and the
 manager sees who it overlaps with on the approval card. The **Calendar** shows
-approved time off and highlights days where 2+ people from one team are off.
+approved time off (on the Time off page) and highlights days where 2+ people from one team are off.
 Staff can cancel their own pending requests.
 
 ### Approvals
@@ -119,7 +127,7 @@ staffapp/
     approvals.py     generic approvals + what happens on approve/deny
     notify.py        email stub (prints to console)
     models.py, db.py SQLAlchemy tables and connection
-    templates/       Jinja2 pages
+    templates/       Jinja2 pages (_macros.html has the shared ●●○ dots, status badges etc.)
     static/style.css
   doc_templates/     one .docx per tier
   generated/         filled-in documents (git-ignored)
