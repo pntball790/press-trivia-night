@@ -50,3 +50,7 @@ For any date, the app takes everyone's shift (one-week edit if there is one, oth
 - `app.js` – data model, schedule/vacation logic, review workflow, rendering
 - `tour.js` – guided walkthrough
 - `tools/build_artifact.py` – single-file bundle for sharing
+
+## Practice course
+
+`practice-course/` is a separate hands-on Python & C course (lessons, exercises, tests and answer keys). Start with `practice-course/README.md`.
