@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Staff{% endblock %} · GI/Hepatology</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{% set path = request.url.path %}
+<header class="topbar">
+  <div class="topbar-row">
+    <a class="brand" href="/">GI/Hep Staff</a>
+    {% if user %}
+    <details class="switcher">
+      <summary>{{ user.employee.name }} <span class="role">{{ {'staff':'Staff','manager':'Manager','hr':'HR'}[user.role] }}</span> ▾</summary>
+      <div class="menu">
+        <div class="muted small">View the demo as…</div>
+        {% for p in personas %}
+        <form method="post" action="/login">
+          <input type="hidden" name="user_id" value="{{ p.id }}"><input type="hidden" name="role" value="{{ p.role }}">
+          <button class="menu-item{% if p.id == user.id and p.role == user.role %} current{% endif %}">
+            <strong>{{ {'staff':'Staff','manager':'Manager','hr':'HR'}[p.role] }}</strong> · {{ p.name }}
+          </button>
+        </form>
+        {% endfor %}
+        <a class="menu-item" href="/logout">Someone else…</a>
+      </div>
+    </details>
+    {% endif %}
+  </div>
+  {% if user %}
+  <nav class="tabs">
+    {% if user.is_staff %}
+      <a href="/" class="{{ 'active' if path == '/' }}">Home</a>
+      <a href="/attendance/{{ user.id }}" class="{{ 'active' if path.startswith('/attendance') }}">My attendance</a>
+      <a href="/vacation" class="{{ 'active' if path.startswith('/vacation') }}">Time off</a>
+    {% else %}
+      <a href="/" class="{{ 'active' if path == '/' }}">To-do</a>
+      <a href="/team" class="{{ 'active' if path.startswith('/team') or path.startswith('/attendance') or path.startswith('/disciplinary') }}">Team</a>
+      <a href="/vacation" class="{{ 'active' if path.startswith('/vacation') }}">Time off</a>
+      <a href="/approvals" class="{{ 'active' if path.startswith('/approvals') }}">Approvals{% if user.pending_count %} <span class="count">{{ user.pending_count }}</span>{% endif %}</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+</header>
+<main>
+  {% set msg = request.query_params.get('msg') %}
+  {% if msg %}<div class="flash {{ request.query_params.get('kind', 'ok') }}">{{ msg }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

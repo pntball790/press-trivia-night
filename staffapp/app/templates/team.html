@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "_macros.html" import late_dots, step %}
+{% block title %}Team{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{{ 'Everyone' if user.is_hr else 'My team' }}</h1>
+  <a href="/disciplinary" class="small">Disciplinary documents →</a>
+</div>
+{% if due %}
+<div class="todo">
+  <div><strong>{{ due|length }} reached a new step:</strong> {% for emp, tier, total in due %}{{ emp.name }} ({{ tier.label }}){% if not loop.last %}, {% endif %}{% endfor %}</div>
+  <form method="post" action="/disciplinary/run"><input type="hidden" name="back" value="/team"><button>Create documents</button></form>
+</div>
+{% endif %}
+<p class="muted small">Tap a name to see their record or log attendance.</p>
+<div class="people">
+  {% for row in rows %}
+  <a class="person" href="/attendance/{{ row.emp.id }}">
+    <div class="person-name"><strong>{{ row.emp.name }}</strong><span class="muted small">{{ row.emp.title }} · {{ row.emp.team }}</span></div>
+    <div class="person-num"><span class="num">{{ row.total }}</span><span class="muted small">occ.</span></div>
+    <div class="person-lates">{{ late_dots(row.lates) }}</div>
+    <div class="person-step">{{ step(row.total) }}</div>
+  </a>
+  {% endfor %}
+</div>
+<p class="muted small">● = small late (7 min or less) this month. The 3rd one adds an occurrence.</p>
+{% endblock %}

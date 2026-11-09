@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Disciplinary{% endblock %}
+{% block content %}
+<p class="small"><a href="/team">← Team</a></p>
+<h1>Disciplinary documents</h1>
+<p class="muted">When someone's occurrences reach a new step, create the Word document here. It then waits in Approvals for the manager to sign off.</p>
+
+{% if due %}
+<div class="todo">
+  <div><strong>Ready to create:</strong>
+    <ul class="plain">{% for emp, tier, total in due %}<li>{{ emp.name }} → {{ tier.label }} <span class="muted">({{ total }} occurrences)</span></li>{% endfor %}</ul>
+  </div>
+  <form method="post" action="/disciplinary/run"><button>Create documents</button></form>
+</div>
+{% else %}
+<div class="todo done">✓ Nobody has reached a new step.</div>
+{% endif %}
+
+<h2>The steps</h2>
+<ol class="ladder">
+  {% for t in tiers %}<li><span class="num">{{ t.threshold }}</span> {{ t.label }}</li>{% endfor %}
+</ol>
+<p class="muted small">Each step is only created once per person. Odd numbers between steps (9, 11, 13, 15) don't trigger anything new.</p>
+
+<h2>All documents</h2>
+{% if actions %}
+<table>
+  <tr><th>Person</th><th>Step</th><th>Status</th><th></th></tr>
+  {% for a in actions %}
+  <tr>
+    <td><a href="/attendance/{{ a.employee_id }}">{{ a.employee.name }}</a></td>
+    <td>{{ tier_label(a.tier) }}<div class="muted small">{{ 'Issued ' ~ a.issued_date|nice if a.issued_date else 'Created ' ~ a.created_at.date()|nice }}</div></td>
+    <td>{{ status(a.status) }}</td>
+    <td>{% if a.document_path %}<a href="/disciplinary/{{ a.id }}/document">Word doc</a>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}<p class="muted">None yet.</p>{% endif %}
+{% endblock %}

@@ -1,5 +1,7 @@
 # GI/Hep Staff Schedule & Vacation Calendar (prototype)
 
+> **New:** a server-side Python version with attendance, disciplinary tiers, vacation and approvals lives in [`staffapp/`](staffapp/README.md).
+
 A no-build, browser-only prototype that combines an Excel-style **staff schedule** with the **GI/Hep vacation request** workflow (charge nurse → manager review) and a **vacation calendar**.
 
 Open `index.html` in a browser (or run `python3 -m http.server` and visit http://localhost:8000). Data is saved in the browser's localStorage and starts with demo data.

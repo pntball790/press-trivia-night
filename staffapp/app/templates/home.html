@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% from "_macros.html" import late_dots, dates, status %}
+{% block title %}{{ 'Home' if user.is_staff else 'To-do' }}{% endblock %}
+{% block content %}
+<h1>Hi {{ user.employee.name.split()[0] }}</h1>
+
+{% if user.is_staff %}
+{# ---------- Staff home ---------- #}
+<div class="summary">
+  <a class="stat" href="/attendance/{{ user.id }}"><span class="num">{{ my_total }}</span><span>occurrences</span></a>
+  <a class="stat" href="/attendance/{{ user.id }}">{{ late_dots(my_lates) }}<span>small lates this month</span></a>
+</div>
+
+<a class="big-button" href="/vacation?new=1#request">Request time off</a>
+
+<h2>Waiting for your manager</h2>
+{% if my_pending %}
+<ul class="list">{% for r in my_pending %}<li>{{ dates(r) }} {{ status(r.status) }}</li>{% endfor %}</ul>
+{% else %}<p class="muted">Nothing waiting.</p>{% endif %}
+
+<h2>Coming up</h2>
+{% if my_upcoming %}
+<ul class="list">{% for r in my_upcoming %}<li>{{ dates(r) }} {{ status(r.status) }}</li>{% endfor %}</ul>
+{% else %}<p class="muted">No approved time off coming up.</p>{% endif %}
+
+{% else %}
+{# ---------- Manager / HR to-do ---------- #}
+{% set nothing = not pending_time_off and not pending_disc and not due %}
+{% if nothing %}
+<div class="todo done">✓ All caught up. Nothing needs your decision.</div>
+{% endif %}
+
+{% if pending_time_off %}
+<div class="todo">
+  <div><strong>{{ pending_time_off }} time-off request{{ 's' if pending_time_off > 1 }}</strong> waiting for you</div>
+  <a class="button" href="/approvals#time-off">Review</a>
+</div>
+{% endif %}
+
+{% if pending_disc %}
+<div class="todo">
+  <div><strong>{{ pending_disc }} disciplinary document{{ 's' if pending_disc > 1 }}</strong> to review and sign off</div>
+  <a class="button" href="/approvals#disciplinary">Review</a>
+</div>
+{% endif %}
+
+{% if due %}
+<div class="todo">
+  <div>
+    <strong>{{ due|length }} {{ 'person has' if due|length == 1 else 'people have' }} reached a new disciplinary step</strong>
+    <ul class="plain">{% for emp, tier, total in due %}<li>{{ emp.name }} → {{ tier.label }} <span class="muted">({{ total }} occurrences)</span></li>{% endfor %}</ul>
+  </div>
+  <form method="post" action="/disciplinary/run"><input type="hidden" name="back" value="/">
+    <button>Create documents</button></form>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 class="tight">Log attendance</h2>
+  <form method="get" action="/attendance/pick" class="row-form">
+    <select name="employee_id" aria-label="Employee">
+      {% for e in team %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}
+    </select>
+    <button>Next</button>
+  </form>
+</div>
+
+<h2>Good to know</h2>
+<ul class="list">
+  {% for e in near_late %}<li><a href="/attendance/{{ e.id }}">{{ e.name }}</a> has 2 small lates this month — one more adds an occurrence.</li>{% endfor %}
+  {% for r in team_off_soon %}<li>{{ r.employee.name }} is off {{ dates(r) }}</li>{% endfor %}
+  {% if not near_late and not team_off_soon %}<li class="muted">Nobody off in the next 2 weeks.</li>{% endif %}
+</ul>
+<p class="small"><a href="/attendance/{{ user.id }}">My own attendance ({{ my_total }} occurrences)</a></p>
+{% endif %}
+{% endblock %}

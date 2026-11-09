@@ -1,0 +1,20 @@
+{# Small reusable bits. #}
+
+{# Three dots for "small lates this month": ●●○ #}
+{% macro late_dots(n) -%}
+<span class="dots" title="{{ n }} of 3 small lates this month">
+  {%- for i in range(1, 4) %}<span class="dot{% if i <= n %} on{% endif %}"></span>{% endfor -%}
+  {%- if n > 3 %}<span class="extra">+{{ n - 3 }}</span>{% endif -%}
+</span>
+{%- endmacro %}
+
+{# Where someone is on the disciplinary ladder, in plain words. #}
+{% macro step(total) -%}
+{%- set cur = tier_for(total) %}{% set nxt = next_tier(total) -%}
+{% if cur %}<span class="pill">{{ cur.label }}</span>{% else %}<span class="muted">No step yet</span>{% endif %}
+{% if nxt %}<div class="muted small">next: {{ nxt.label }} at {{ nxt.threshold }}</div>{% endif %}
+{%- endmacro %}
+
+{% macro status(s) -%}<span class="status {{ s }}">{{ {'pending': 'Waiting', 'approved': 'Approved', 'denied': 'Denied', 'issued': 'Issued', 'cancelled': 'Cancelled'}.get(s, s) }}</span>{%- endmacro %}
+
+{% macro dates(r) -%}{{ r.start_date|nice }}{% if r.end_date != r.start_date %} – {{ r.end_date|nice }}{% endif %}{%- endmacro %}

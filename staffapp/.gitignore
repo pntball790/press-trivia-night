@@ -1,0 +1,5 @@
+staffapp.db
+generated/
+__pycache__/
+.pytest_cache/
+.venv/
