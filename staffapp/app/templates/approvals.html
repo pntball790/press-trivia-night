@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Approvals{% endblock %}
+{% block content %}
+<h1>Approvals</h1>
+<p class="muted">{% if user.is_hr %}All pending items (HR).{% else %}Items assigned to you.{% endif %}</p>
+
+{% if pending %}
+{% for a, info in pending %}
+<div class="card approval">
+  <div><span class="badge">{{ info.label }}</span> <strong>{{ info.employee.name }}</strong> — {{ info.summary }}</div>
+  <div class="muted small">Submitted {{ a.created_at.strftime('%Y-%m-%d %H:%M') }}{% if a.approver %} · Assigned to {{ a.approver.name }}{% else %} · Unassigned (HR){% endif %}</div>
+  {% if info.note %}<div>Note: {{ info.note }}</div>{% endif %}
+  {% if info.doc_url %}<div><a href="{{ info.doc_url }}">Download document (.docx)</a> · <a href="/attendance/{{ info.employee.id }}">Attendance history</a></div>{% endif %}
+  {% if info.overlaps %}
+  <div class="flash warn">⚠ Overlaps with:
+    {% for r in info.overlaps %}{{ r.employee.name }} {{ r.start_date }}→{{ r.end_date }} ({{ r.status }}){% if not loop.last %}; {% endif %}{% endfor %}
+  </div>
+  {% endif %}
+  <form method="post" action="/approvals/{{ a.id }}" class="decide">
+    <input type="text" name="comment" placeholder="Comment (optional)" maxlength="500">
+    <button name="decision" value="approve">Approve</button>
+    <button name="decision" value="deny" class="secondary">Deny</button>
+  </form>
+</div>
+{% endfor %}
+{% else %}<p class="muted">Nothing pending. 🎉</p>{% endif %}
+
+<h2>Recently decided</h2>
+{% if recent %}
+<table>
+  <tr><th>Type</th><th>Employee</th><th>Item</th><th>Decision</th><th>By</th><th>When</th><th>Comment</th></tr>
+  {% for a, info in recent %}
+  <tr><td>{{ info.label }}</td><td>{{ info.employee.name }}</td><td>{{ info.summary }}</td>
+    <td><span class="status {{ a.status }}">{{ a.status }}</span></td>
+    <td>{{ a.decided_by.name if a.decided_by else '' }}</td>
+    <td>{{ a.decided_at.strftime('%Y-%m-%d %H:%M') if a.decided_at else '' }}</td><td>{{ a.comment }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="muted">Nothing yet.</p>{% endif %}
+{% endblock %}

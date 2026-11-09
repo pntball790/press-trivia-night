@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block content %}
+<h1>Hello, {{ user.employee.name.split()[0] }}</h1>
+<div class="tiles">
+  <a class="tile" href="/attendance/{{ user.id }}"><span class="num">{{ my_total }}</span>my occurrences</a>
+  <a class="tile" href="/attendance/{{ user.id }}"><span class="num">{{ my_lates }}/3</span>lates ≤7 min this month</a>
+  {% if not user.is_staff %}
+  <a class="tile" href="/approvals"><span class="num">{{ pending_count }}</span>pending approvals</a>
+  <a class="tile" href="/disciplinary"><span class="num">{{ due|length }}</span>due a new disciplinary tier</a>
+  {% endif %}
+</div>
+
+<h2>My upcoming time off</h2>
+{% if my_requests %}
+<table>
+  <tr><th>Dates</th><th>Status</th></tr>
+  {% for r in my_requests %}
+  <tr><td>{{ r.start_date }} → {{ r.end_date }}</td><td><span class="status {{ r.status }}">{{ r.status }}</span></td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="muted">None. <a href="/vacation">Request time off</a>.</p>{% endif %}
+
+{% if due %}
+<h2>Due a new disciplinary tier</h2>
+<ul>{% for emp, tier, total in due %}<li>{{ emp.name }} — {{ tier.label }} ({{ total }} occurrences)</li>{% endfor %}</ul>
+<p><a href="/disciplinary">Go to Disciplinary to generate documents →</a></p>
+{% endif %}
+{% endblock %}

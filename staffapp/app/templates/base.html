@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Staff{% endblock %} · GI/Hepatology</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <strong class="brand">GI/Hepatology Staff</strong>
+  {% if user %}
+  <nav>
+    <a href="/">Home</a>
+    <a href="/attendance">Attendance</a>
+    <a href="/vacation">Time off</a>
+    <a href="/calendar">Calendar</a>
+    {% if not user.is_staff %}
+      <a href="/disciplinary">Disciplinary</a>
+      <a href="/approvals">Approvals</a>
+    {% endif %}
+  </nav>
+  <span class="who">{{ user.employee.name }} · <span class="badge">{{ user.role }}</span> · <a href="/logout">Switch user</a></span>
+  {% endif %}
+</header>
+<main>
+  {% set msg = request.query_params.get('msg') %}
+  {% if msg %}<div class="flash {{ request.query_params.get('kind', 'ok') }}">{{ msg }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Disciplinary{% endblock %}
+{% block content %}
+<h1>Disciplinary</h1>
+
+<div class="card">
+  <h2>Check for new tiers</h2>
+  {% if due %}
+  <p>These employees have reached a tier that hasn't been generated yet:</p>
+  <ul>{% for emp, tier, total in due %}<li>{{ emp.name }} — <strong>{{ tier.label }}</strong> ({{ total }} occurrences)</li>{% endfor %}</ul>
+  {% else %}<p class="muted">Nobody is due a new tier right now.</p>{% endif %}
+  <form method="post" action="/disciplinary/run">
+    <button type="submit" {% if not due %}disabled{% endif %}>Generate documents &amp; send for approval</button>
+  </form>
+  <p class="muted small">Creates a Word document from each tier's template and an approval for the employee's manager.
+    Tiers already generated (pending, issued or denied) are skipped.</p>
+</div>
+
+<h2>Actions</h2>
+{% if actions %}
+<table>
+  <tr><th>Employee</th><th>Tier</th><th class="r">At occurrences</th><th>Status</th><th>Created</th><th>Issued</th><th></th></tr>
+  {% for a in actions %}
+  <tr>
+    <td><a href="/attendance/{{ a.employee_id }}">{{ a.employee.name }}</a></td>
+    <td>{{ tier_label(a.tier) }}</td><td class="r">{{ a.occurrence_count }}</td>
+    <td><span class="status {{ a.status }}">{{ a.status }}</span></td>
+    <td>{{ a.created_at.strftime('%Y-%m-%d') }}</td><td>{{ a.issued_date or '' }}</td>
+    <td>{% if a.document_path %}<a href="/disciplinary/{{ a.id }}/document">.docx</a>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}<p class="muted">No disciplinary actions yet.</p>{% endif %}
+
+<details class="small"><summary>Tier thresholds</summary>
+  <ul>{% for t in tiers %}<li>{{ t.threshold }}+ occurrences: {{ t.label }}</li>{% endfor %}</ul>
+  <p class="muted">9, 11, 13 and 15 trigger nothing new.</p>
+</details>
+{% endblock %}

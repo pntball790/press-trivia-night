@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Time off{% endblock %}
+{% block content %}
+<h1>Time off</h1>
+<div class="card">
+  <h2>Request time off</h2>
+  <form method="post" action="/vacation" class="grid-form">
+    <label>From <input type="date" name="start_date" min="{{ today }}" required></label>
+    <label>To <input type="date" name="end_date" min="{{ today }}" required></label>
+    <label class="wide">Note <input type="text" name="note" maxlength="500"></label>
+    <button type="submit">Submit</button>
+  </form>
+</div>
+
+<h2>My requests</h2>
+{% if mine %}
+<table>
+  <tr><th>Dates</th><th>Days</th><th>Note</th><th>Status</th><th></th></tr>
+  {% for r in mine %}
+  <tr>
+    <td>{{ r.start_date }} → {{ r.end_date }}</td><td>{{ (r.end_date - r.start_date).days + 1 }}</td><td>{{ r.note }}</td>
+    <td><span class="status {{ r.status }}">{{ r.status }}</span></td>
+    <td>{% if r.status == 'pending' %}
+      <form method="post" action="/vacation/{{ r.id }}/cancel" class="inline"><button class="link">Cancel</button></form>
+    {% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}<p class="muted">No requests yet.</p>{% endif %}
+
+{% if team %}
+<h2>{{ 'All' if user.is_hr else 'Team' }} requests (last 30 days onward)</h2>
+<table>
+  <tr><th>Employee</th><th>Dates</th><th>Note</th><th>Status</th></tr>
+  {% for r in team %}
+  <tr><td>{{ r.employee.name }}</td><td>{{ r.start_date }} → {{ r.end_date }}</td><td>{{ r.note }}</td>
+    <td><span class="status {{ r.status }}">{{ r.status }}</span></td></tr>
+  {% endfor %}
+</table>
+<p><a href="/approvals">Approve or deny on the Approvals page →</a></p>
+{% endif %}
+{% endblock %}

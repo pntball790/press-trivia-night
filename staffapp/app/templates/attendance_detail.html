@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ emp.name }} · Attendance{% endblock %}
+{% block content %}
+<h1>{{ emp.name }}</h1>
+<p class="muted">{{ emp.title }} · {{ emp.team }}{% if emp.manager %} · Manager: {{ emp.manager.name }}{% endif %}</p>
+<div class="tiles">
+  <div class="tile"><span class="num">{{ total }}</span>total occurrences</div>
+  <div class="tile"><span class="num">{{ month_lates }}/3</span>lates ≤{{ grace }} min this month</div>
+</div>
+
+{% if can_log %}
+<details class="card" open>
+  <summary><strong>Log an attendance event</strong></summary>
+  <form method="post" action="/attendance/{{ emp.id }}/log" class="grid-form">
+    <label>Date <input type="date" name="event_date" value="{{ today }}" required></label>
+    <label>Type
+      <select name="event_type">{% for t in event_types %}<option>{{ t }}</option>{% endfor %}</select>
+    </label>
+    <label>Minutes late <input type="number" name="minutes_late" min="0" max="999"></label>
+    <label>Occurrence
+      <select name="occurrence">{% for v, l in occ_labels.items() %}<option value="{{ v }}">{{ v }} — {{ l }}</option>{% endfor %}</select>
+    </label>
+    <label class="wide">Notes <input type="text" name="notes" maxlength="500"></label>
+    <button type="submit">Log event</button>
+  </form>
+  <p class="muted small">A <em>Late</em> of 1–{{ grace }} minutes goes to the monthly late counter (occurrence is ignored).
+    The 3rd one in a month copies all 3 into attendance: 0, 0, then 1 occurrence. Later ones that month are recorded only.</p>
+</details>
+{% endif %}
+
+<h2>Attendance record</h2>
+{% if rows %}
+<table>
+  <tr><th>Date</th><th>Type</th><th class="r">Min late</th><th class="r">Occurrence</th><th class="r">Running total</th><th>Notes</th></tr>
+  {% for e, running in rows %}
+  <tr>
+    <td>{{ e.event_date }}</td><td>{{ e.event_type }}</td>
+    <td class="r">{{ e.minutes_late if e.minutes_late is not none else '' }}</td>
+    <td class="r">{{ e.occurrence }} <span class="muted small">{{ occ_labels[e.occurrence] }}</span></td>
+    <td class="r">{{ running }}</td><td>{{ e.notes }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}<p class="muted">No attendance events.</p>{% endif %}
+
+<h2>Late counter (≤{{ grace }} min)</h2>
+{% if lates %}
+<table>
+  <tr><th>Date</th><th class="r">Min late</th><th>Copied to attendance</th></tr>
+  {% for l in lates %}
+  <tr><td>{{ l.event_date }}</td><td class="r">{{ l.minutes_late }}</td><td>{{ 'Yes' if l.copied_to_attendance else 'No' }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="muted">No lates within {{ grace }} minutes.</p>{% endif %}
+
+{% if actions %}
+<h2>Disciplinary history</h2>
+<table>
+  <tr><th>Tier</th><th class="r">At occurrences</th><th>Status</th><th>Issued</th><th></th></tr>
+  {% for a in actions %}
+  <tr><td>{{ tier_label(a.tier) }}</td><td class="r">{{ a.occurrence_count }}</td>
+    <td><span class="status {{ a.status }}">{{ a.status }}</span></td><td>{{ a.issued_date or '' }}</td>
+    <td>{% if a.document_path %}<a href="/disciplinary/{{ a.id }}/document">.docx</a>{% endif %}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}
